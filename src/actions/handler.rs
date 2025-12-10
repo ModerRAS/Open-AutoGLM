@@ -422,66 +422,80 @@ fn parse_do_action(response: &str) -> Result<Value, ActionError> {
         "_metadata": "do"
     });
 
-    // Parse key-value pairs
-    // This is a simplified parser - in production you might want a more robust solution
-    let mut current_key = String::new();
-    let mut current_value = String::new();
+    // Parse key-value pairs using a state machine approach
+    let mut key = String::new();
+    let mut value = String::new();
     let mut in_string = false;
     let mut in_list = false;
+    let mut list_depth = 0;
     let mut string_char = '"';
-    let mut chars = content.chars().peekable();
+    let mut parsing_key = true;
 
-    while let Some(c) = chars.next() {
-        if !in_string && !in_list {
-            if c == '=' {
-                current_key = current_key.trim().to_string();
-                continue;
-            } else if c == ',' {
-                // Save the current key-value pair
-                if !current_key.is_empty() {
-                    let value = parse_value(&current_value.trim())?;
-                    result[&current_key] = value;
-                }
-                current_key.clear();
-                current_value.clear();
-                continue;
-            } else if c == '"' || c == '\'' {
-                in_string = true;
-                string_char = c;
-                continue;
-            } else if c == '[' {
-                in_list = true;
-                current_value.push(c);
-                continue;
-            }
-        }
-
+    for c in content.chars() {
         if in_string {
             if c == string_char {
                 in_string = false;
             } else {
-                current_value.push(c);
+                value.push(c);
             }
-        } else if in_list {
-            current_value.push(c);
-            if c == ']' {
-                in_list = false;
+            continue;
+        }
+
+        if in_list {
+            value.push(c);
+            if c == '[' {
+                list_depth += 1;
+            } else if c == ']' {
+                list_depth -= 1;
+                if list_depth == 0 {
+                    in_list = false;
+                }
             }
-        } else if !c.is_whitespace() && c != '=' {
-            if current_key.is_empty() {
-                current_key.push(c);
-            } else {
-                current_value.push(c);
+            continue;
+        }
+
+        match c {
+            '"' | '\'' => {
+                in_string = true;
+                string_char = c;
             }
-        } else if current_key.is_empty() {
-            current_key.push(c);
+            '[' => {
+                in_list = true;
+                list_depth = 1;
+                value.push(c);
+            }
+            '=' => {
+                parsing_key = false;
+            }
+            ',' => {
+                // Save current key-value pair
+                let trimmed_key = key.trim().to_string();
+                if !trimmed_key.is_empty() {
+                    let parsed_value = parse_value(&value.trim())?;
+                    result[&trimmed_key] = parsed_value;
+                }
+                key.clear();
+                value.clear();
+                parsing_key = true;
+            }
+            _ if c.is_whitespace() => {
+                // Skip whitespace outside strings
+            }
+            _ => {
+                if parsing_key {
+                    key.push(c);
+                } else {
+                    value.push(c);
+                }
+            }
         }
     }
 
     // Save the last key-value pair
-    if !current_key.is_empty() {
-        let value = parse_value(&current_value.trim())?;
-        result[&current_key] = value;
+    let trimmed_key = key.trim().to_string();
+    if !trimmed_key.is_empty() {
+        let parsed_value = parse_value(&value.trim())?;
+        result[&trimmed_key] = parsed_value;
     }
 
     Ok(result)

@@ -16,7 +16,7 @@
 //!     let model_config = ModelConfig::default();
 //!     let agent_config = AgentConfig::default();
 //!     
-//!     let agent = PhoneAgent::new(model_config, agent_config);
+//!     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
 //!     let result = agent.run("打开微信").await?;
 //!     
 //!     println!("Task result: {}", result);
