@@ -1,0 +1,33 @@
+Open-AutoGLM (Rust)
+Copyright 2025 ModerRAS
+
+This product is a Rust implementation derived from:
+
+Open-AutoGLM
+Copyright 2025 Zhipu AI
+https://github.com/zai-org/Open-AutoGLM
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+================================================================================
+
+This Rust implementation is a complete rewrite of the original Python codebase.
+The following components were reimplemented in Rust based on the original design:
+
+- phone_agent/agent.py -> src/agent/phone_agent.rs
+- phone_agent/actions/handler.py -> src/actions/handler.rs
+- phone_agent/adb/*.py -> src/adb/*.rs
+- phone_agent/config/*.py -> src/config/*.rs
+- phone_agent/model/client.py -> src/model/client.rs
+
+All code in this repository is licensed under the Apache License 2.0.

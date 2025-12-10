@@ -177,9 +177,33 @@ cargo run --example demo_thinking
 
 ## License
 
-Apache-2.0 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+This project is a Rust rewrite of [Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM), originally developed by [Zhipu AI](https://github.com/zai-org) and released under the Apache 2.0 license.
+
+```
+Copyright 2025 Zhipu AI (Original Python implementation)
+Copyright 2025 ModerRAS (Rust implementation)
+
+Licensed under the Apache License, Version 2.0
+```
 
 ## Acknowledgments
 
-- Original Python implementation: [Open-AutoGLM](https://github.com/THUDM/Open-AutoGLM)
-- AutoGLM model by THUDM
+- Original Python implementation: [zai-org/Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM)
+- AutoGLM model by [Zhipu AI](https://www.zhipuai.cn/)
+
+## Citation
+
+If you find this project helpful, please cite the original paper:
+
+```bibtex
+@article{liu2024autoglm,
+  title={Autoglm: Autonomous foundation agents for guis},
+  author={Liu, Xiao and Qin, Bo and Liang, Dongzhu and Dong, Guang and Lai, Hanyu and
+Zhang, Hanchen and Zhao, Hanlin and Iong, Iat Long and Sun, Jiadai and Wang, Jiaqi
+and others},
+  journal={arXiv preprint arXiv:2411.00820},
+  year={2024}
+}
+```
