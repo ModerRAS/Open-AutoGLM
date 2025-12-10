@@ -176,10 +176,46 @@ impl ActionHandler {
         element: &[i64],
         screen_width: u32,
         screen_height: u32,
-    ) -> (i32, i32) {
-        let x = (element[0] as f64 / 1000.0 * screen_width as f64) as i32;
-        let y = (element[1] as f64 / 1000.0 * screen_height as f64) as i32;
-        (x, y)
+    ) -> Result<(i32, i32), String> {
+        let rel_x = element[0];
+        let rel_y = element[1];
+
+        // Check if relative coordinates are within valid range (0-1000)
+        if rel_x < 0 || rel_x > 1000 {
+            return Err(format!(
+                "X coordinate {} is out of bounds. Valid range is [0, 1000]. \
+                Please provide coordinates within the screen area.",
+                rel_x
+            ));
+        }
+        if rel_y < 0 || rel_y > 1000 {
+            return Err(format!(
+                "Y coordinate {} is out of bounds. Valid range is [0, 1000]. \
+                Please provide coordinates within the screen area.",
+                rel_y
+            ));
+        }
+
+        let x = (rel_x as f64 / 1000.0 * screen_width as f64) as i32;
+        let y = (rel_y as f64 / 1000.0 * screen_height as f64) as i32;
+        Ok((x, y))
+    }
+
+    /// Validate and convert relative coordinates to absolute, with detailed error messages.
+    fn validate_coordinates(
+        &self,
+        coords: &[i64],
+        coord_name: &str,
+        screen_width: u32,
+        screen_height: u32,
+    ) -> Result<(i32, i32), ActionResult> {
+        match self.convert_relative_to_absolute(coords, screen_width, screen_height) {
+            Ok((x, y)) => Ok((x, y)),
+            Err(msg) => Err(ActionResult::failure(format!(
+                "Coordinate error for {}: {}",
+                coord_name, msg
+            ))),
+        }
     }
 
     fn handle_launch(&self, action: &Value) -> ActionResult {
@@ -222,7 +258,10 @@ impl ActionHandler {
             }
         }
 
-        let (x, y) = self.convert_relative_to_absolute(&element, screen_width, screen_height);
+        let (x, y) = match self.validate_coordinates(&element, "element", screen_width, screen_height) {
+            Ok(coords) => coords,
+            Err(result) => return result,
+        };
         tap(x, y, self.device_id.as_deref(), None);
         ActionResult::success()
     }
@@ -274,8 +313,14 @@ impl ActionHandler {
             None => return ActionResult::failure("Missing end coordinates"),
         };
 
-        let (start_x, start_y) = self.convert_relative_to_absolute(&start, screen_width, screen_height);
-        let (end_x, end_y) = self.convert_relative_to_absolute(&end, screen_width, screen_height);
+        let (start_x, start_y) = match self.validate_coordinates(&start, "start", screen_width, screen_height) {
+            Ok(coords) => coords,
+            Err(result) => return result,
+        };
+        let (end_x, end_y) = match self.validate_coordinates(&end, "end", screen_width, screen_height) {
+            Ok(coords) => coords,
+            Err(result) => return result,
+        };
 
         swipe(start_x, start_y, end_x, end_y, None, self.device_id.as_deref(), None);
         ActionResult::success()
@@ -308,7 +353,10 @@ impl ActionHandler {
             None => return ActionResult::failure("No element coordinates"),
         };
 
-        let (x, y) = self.convert_relative_to_absolute(&element, screen_width, screen_height);
+        let (x, y) = match self.validate_coordinates(&element, "element", screen_width, screen_height) {
+            Ok(coords) => coords,
+            Err(result) => return result,
+        };
         double_tap(x, y, self.device_id.as_deref(), None);
         ActionResult::success()
     }
@@ -330,7 +378,10 @@ impl ActionHandler {
             None => return ActionResult::failure("No element coordinates"),
         };
 
-        let (x, y) = self.convert_relative_to_absolute(&element, screen_width, screen_height);
+        let (x, y) = match self.validate_coordinates(&element, "element", screen_width, screen_height) {
+            Ok(coords) => coords,
+            Err(result) => return result,
+        };
         long_press(x, y, None, self.device_id.as_deref(), None);
         ActionResult::success()
     }
@@ -637,5 +688,89 @@ mod tests {
         let finish = ActionResult::finish(Some("Done".to_string()));
         assert!(finish.success);
         assert!(finish.should_finish);
+    }
+
+    #[test]
+    fn test_coordinate_bounds_check_valid() {
+        let handler = ActionHandler::new(None, None, None);
+        
+        // Valid coordinates (0-1000)
+        let result = handler.convert_relative_to_absolute(&[500, 500], 1080, 1920);
+        assert!(result.is_ok());
+        let (x, y) = result.unwrap();
+        assert_eq!(x, 540);  // 500/1000 * 1080
+        assert_eq!(y, 960);  // 500/1000 * 1920
+        
+        // Edge cases - boundaries
+        let result = handler.convert_relative_to_absolute(&[0, 0], 1080, 1920);
+        assert!(result.is_ok());
+        
+        let result = handler.convert_relative_to_absolute(&[1000, 1000], 1080, 1920);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_coordinate_bounds_check_invalid_x() {
+        let handler = ActionHandler::new(None, None, None);
+        
+        // X coordinate out of bounds (negative)
+        let result = handler.convert_relative_to_absolute(&[-10, 500], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("X coordinate"));
+        
+        // X coordinate out of bounds (too large)
+        let result = handler.convert_relative_to_absolute(&[1500, 500], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("X coordinate"));
+    }
+
+    #[test]
+    fn test_coordinate_bounds_check_invalid_y() {
+        let handler = ActionHandler::new(None, None, None);
+        
+        // Y coordinate out of bounds (negative)
+        let result = handler.convert_relative_to_absolute(&[500, -10], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Y coordinate"));
+        
+        // Y coordinate out of bounds (too large)
+        let result = handler.convert_relative_to_absolute(&[500, 1200], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Y coordinate"));
+    }
+
+    #[test]
+    fn test_tap_action_with_invalid_coordinates() {
+        let handler = ActionHandler::new(None, None, None);
+        
+        // Tap with out-of-bounds coordinates
+        let action = json!({
+            "_metadata": "do",
+            "action": "Tap",
+            "element": [1500, 500]
+        });
+        
+        let result = handler.execute(&action, 1080, 1920);
+        assert!(!result.success);
+        assert!(result.message.is_some());
+        assert!(result.message.unwrap().contains("out of bounds"));
+    }
+
+    #[test]
+    fn test_swipe_action_with_invalid_coordinates() {
+        let handler = ActionHandler::new(None, None, None);
+        
+        // Swipe with out-of-bounds start coordinates
+        let action = json!({
+            "_metadata": "do",
+            "action": "Swipe",
+            "start": [-100, 500],
+            "end": [500, 500]
+        });
+        
+        let result = handler.execute(&action, 1080, 1920);
+        assert!(!result.success);
+        assert!(result.message.is_some());
+        assert!(result.message.unwrap().contains("out of bounds"));
     }
 }
