@@ -43,11 +43,21 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 - {think} 是对你为什么选择这个操作的简短推理说明。
 - {action} 是本次执行的具体操作指令，必须严格遵循下方定义的指令格式。
 
+【坐标系统说明】
+所有涉及坐标的操作（Tap、Swipe、Long Press、Double Tap等）使用的是**相对坐标系统**：
+- 坐标范围：X 和 Y 都必须在 [0, 1000] 范围内
+- 坐标原点：屏幕左上角为 (0, 0)
+- 坐标终点：屏幕右下角为 (1000, 1000)
+- 坐标转换：相对坐标会按比例转换为实际屏幕像素坐标
+  - 例如：在 1080x1920 的屏幕上，相对坐标 (500, 500) 会转换为像素坐标 (540, 960)
+  - 转换公式：实际X = 相对X / 1000 × 屏幕宽度，实际Y = 相对Y / 1000 × 屏幕高度
+- **重要**：如果提供的坐标超出 [0, 1000] 范围，操作将失败并返回错误信息
+
 操作指令及其作用如下：
 - do(action="Launch", app="xxx")  
     Launch是启动目标app的操作，这比通过主屏幕导航更快。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Tap", element=[x,y])  
-    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的截图。
+    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Tap", element=[x,y], message="重要操作")  
     基本功能同Tap，点击涉及财产、支付、隐私等敏感按钮时触发。
 - do(action="Type", text="xxx")  
@@ -57,15 +67,15 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 - do(action="Interact")  
     Interact是当有多个满足条件的选项时而触发的交互操作，询问用户如何选择。
 - do(action="Swipe", start=[x1,y1], end=[x2,y2])  
-    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。滑动持续时间会自动调整以实现自然的移动。此操作完成后，您将自动收到结果状态的截图。
+    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。起始和结束坐标都必须在 [0, 1000] 范围内。滑动持续时间会自动调整以实现自然的移动。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Note", message="True")  
     记录当前页面内容以便后续总结。
 - do(action="Call_API", instruction="xxx")  
     总结或评论当前页面或已记录的内容。
 - do(action="Long Press", element=[x,y])  
-    Long Pres是长按操作，在屏幕上的特定点长按指定时间。可用于触发上下文菜单、选择文本或激活长按交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的屏幕截图。
+    Long Press是长按操作，在屏幕上的特定点长按指定时间。可用于触发上下文菜单、选择文本或激活长按交互。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的屏幕截图。
 - do(action="Double Tap", element=[x,y])  
-    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的截图。
+    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Take_over", message="xxx")  
     Take_over是接管操作，表示在登录和验证阶段需要用户协助。
 - do(action="Back")  
@@ -108,11 +118,21 @@ Where:
 - {think} is a brief reasoning explanation for why you chose this operation.
 - {action} is the specific operation instruction to execute, which must strictly follow the instruction format defined below.
 
+【Coordinate System】
+All coordinate-based operations (Tap, Swipe, Long Press, Double Tap, etc.) use a **relative coordinate system**:
+- Coordinate range: Both X and Y must be within [0, 1000]
+- Origin: Top-left corner of the screen is (0, 0)
+- End point: Bottom-right corner of the screen is (1000, 1000)
+- Coordinate conversion: Relative coordinates are proportionally converted to actual screen pixel coordinates
+  - Example: On a 1080x1920 screen, relative coordinate (500, 500) converts to pixel coordinate (540, 960)
+  - Formula: Actual X = Relative X / 1000 × Screen Width, Actual Y = Relative Y / 1000 × Screen Height
+- **Important**: If provided coordinates are outside the [0, 1000] range, the operation will fail and return an error message
+
 Operation instructions and their functions are as follows:
 - do(action="Launch", app="xxx")  
     Launch starts the target app, which is faster than navigating through the home screen. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Tap", element=[x,y])  
-    Tap is a click operation that clicks a specific point on the screen. Use this operation to click buttons, select items, open applications from the home screen, or interact with any clickable UI element. The coordinate system starts from the top-left corner (0,0) to the bottom-right corner (999,999). After this operation, you will automatically receive a screenshot of the result state.
+    Tap is a click operation that clicks a specific point on the screen. Use this operation to click buttons, select items, open applications from the home screen, or interact with any clickable UI element. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Tap", element=[x,y], message="Important operation")  
     Same basic function as Tap, triggered when clicking sensitive buttons involving property, payment, privacy, etc.
 - do(action="Type", text="xxx")  
@@ -122,15 +142,15 @@ Operation instructions and their functions are as follows:
 - do(action="Interact")  
     Interact is an interactive operation triggered when there are multiple options that meet the criteria, asking the user how to choose.
 - do(action="Swipe", start=[x1,y1], end=[x2,y2])  
-    Swipe executes a swipe gesture by dragging from start coordinates to end coordinates. Can be used to scroll content, navigate between screens, pull down notification bar and item bars, or perform gesture-based navigation. The coordinate system starts from the top-left corner (0,0) to the bottom-right corner (999,999). Swipe duration is automatically adjusted for natural movement. After this operation, you will automatically receive a screenshot of the result state.
+    Swipe executes a swipe gesture by dragging from start coordinates to end coordinates. Can be used to scroll content, navigate between screens, pull down notification bar and item bars, or perform gesture-based navigation. Both start and end coordinates must be within [0, 1000] range. Swipe duration is automatically adjusted for natural movement. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Note", message="True")  
     Record current page content for later summarization.
 - do(action="Call_API", instruction="xxx")  
     Summarize or comment on current page or recorded content.
 - do(action="Long Press", element=[x,y])  
-    Long Press performs a long press at a specific point on the screen for a specified time. Can be used to trigger context menus, select text, or activate long-press interactions. The coordinate system starts from the top-left corner (0,0) to the bottom-right corner (999,999). After this operation, you will automatically receive a screenshot of the result state.
+    Long Press performs a long press at a specific point on the screen for a specified time. Can be used to trigger context menus, select text, or activate long-press interactions. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Double Tap", element=[x,y])  
-    Double Tap quickly taps twice consecutively at a specific point on the screen. Use this operation to activate double-tap interactions such as zooming, selecting text, or opening items. The coordinate system starts from the top-left corner (0,0) to the bottom-right corner (999,999). After this operation, you will automatically receive a screenshot of the result state.
+    Double Tap quickly taps twice consecutively at a specific point on the screen. Use this operation to activate double-tap interactions such as zooming, selecting text, or opening items. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Take_over", message="xxx")  
     Take_over is a takeover operation indicating user assistance is needed during login and verification stages.
 - do(action="Back")  
