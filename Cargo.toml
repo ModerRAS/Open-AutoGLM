@@ -1,0 +1,59 @@
+[package]
+name = "phone-agent"
+version = "0.1.0"
+edition = "2021"
+authors = ["ModerRAS"]
+description = "AI-powered agent for automating Android phone interactions - Rust implementation"
+license = "Apache-2.0"
+repository = "https://github.com/ModerRAS/Open-AutoGLM"
+keywords = ["android", "automation", "ai", "agent", "adb"]
+categories = ["development-tools", "automation"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for model API
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Base64 encoding
+base64 = "0.22"
+
+# Image processing
+image = "0.25"
+
+# Date/time
+chrono = "0.4"
+
+# Lazy initialization
+once_cell = "1"
+
+# Environment variables
+dotenvy = "0.15"
+
+# Tracing/logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UUID generation
+uuid = { version = "1", features = ["v4"] }
+
+[[bin]]
+name = "phone-agent"
+path = "src/main.rs"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "demo_thinking"
+path = "examples/demo_thinking.rs"

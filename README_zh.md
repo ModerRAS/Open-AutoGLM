@@ -1,0 +1,167 @@
+# Open-AutoGLM (Rust)
+
+AI驱动的Android手机自动化代理 - Rust实现
+
+[English](README.md)
+
+## 概述
+
+这是 [Open-AutoGLM](https://github.com/THUDM/Open-AutoGLM) phone agent 的 Rust 重写版本。它使用视觉语言模型来理解屏幕内容，并通过 ADB 自动化 Android 设备交互。
+
+## 特性
+
+- 🤖 使用视觉语言模型的AI驱动手机自动化
+- 📱 通过ADB控制Android设备
+- 🔧 支持各种操作：点击、滑动、输入、启动应用等
+- 🌐 多语言支持（中文和英文）
+- ⚡ 基于async/await的架构
+- 🛡️ 类型安全的Rust实现
+
+## 前置要求
+
+- Rust 1.70 或更高版本
+- 已安装ADB（Android Debug Bridge）并添加到PATH
+- 已启用USB调试的Android设备
+- 设备上安装了 [ADB Keyboard](https://github.com/nicnocquee/AdbKeyboard)（用于文本输入）
+- 运行中的OpenAI兼容API服务器和AutoGLM模型
+
+## 安装
+
+### 从源码编译
+
+```bash
+git clone https://github.com/ModerRAS/Open-AutoGLM.git
+cd Open-AutoGLM
+cargo build --release
+```
+
+### 作为库使用
+
+在 `Cargo.toml` 中添加：
+
+```toml
+[dependencies]
+phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
+```
+
+## 使用方法
+
+### 命令行
+
+```bash
+# 设置环境变量（可选）
+export MODEL_BASE_URL="http://localhost:8000/v1"
+export MODEL_API_KEY="EMPTY"
+export MODEL_NAME="autoglm-phone-9b"
+export AGENT_LANG="cn"  # 或 "en"
+export ADB_DEVICE_ID="your-device-id"  # 单设备时可选
+
+# 运行任务
+cargo run --release -- "打开微信发送消息给张三"
+
+# 或进入交互模式
+cargo run --release
+```
+
+### 作为库
+
+```rust
+use phone_agent::{AgentConfig, ModelConfig, PhoneAgent};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let model_config = ModelConfig::default()
+        .with_base_url("http://localhost:8000/v1");
+    
+    let agent_config = AgentConfig::default()
+        .with_lang("cn")
+        .with_max_steps(50);
+    
+    let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
+    
+    let result = agent.run("打开微信").await?;
+    println!("结果: {}", result);
+    
+    Ok(())
+}
+```
+
+## 配置
+
+### 模型配置
+
+| 字段 | 默认值 | 描述 |
+|------|--------|------|
+| `base_url` | `http://localhost:8000/v1` | API端点 |
+| `api_key` | `EMPTY` | API认证密钥 |
+| `model_name` | `autoglm-phone-9b` | 模型名称 |
+| `max_tokens` | `3000` | 响应最大token数 |
+| `temperature` | `0.0` | 采样温度 |
+
+### 代理配置
+
+| 字段 | 默认值 | 描述 |
+|------|--------|------|
+| `max_steps` | `100` | 停止前最大步数 |
+| `device_id` | `None` | ADB设备ID（可选） |
+| `lang` | `cn` | 提示和消息的语言 |
+| `verbose` | `true` | 打印详细输出 |
+
+## 项目结构
+
+```
+src/
+├── lib.rs              # 库入口
+├── main.rs             # CLI入口
+├── agent/              # 核心代理逻辑
+│   └── phone_agent.rs  # PhoneAgent实现
+├── actions/            # 动作处理
+│   └── handler.rs      # 动作解析和执行器
+├── adb/                # ADB工具
+│   ├── connection.rs   # ADB连接管理
+│   ├── device.rs       # 设备控制（点击、滑动等）
+│   ├── input.rs        # 文本输入工具
+│   └── screenshot.rs   # 截图捕获
+├── config/             # 配置
+│   ├── apps.rs         # 应用包名映射
+│   ├── i18n.rs         # 国际化
+│   └── prompts.rs      # 系统提示词
+└── model/              # 模型客户端
+    └── client.rs       # OpenAI兼容API客户端
+```
+
+## 支持的操作
+
+| 操作 | 描述 |
+|------|------|
+| `Launch` | 按名称启动应用 |
+| `Tap` | 点击坐标 |
+| `Type` | 输入文本 |
+| `Swipe` | 滑动手势 |
+| `Back` | 按返回键 |
+| `Home` | 按主页键 |
+| `Long Press` | 长按坐标 |
+| `Double Tap` | 双击坐标 |
+| `Wait` | 等待指定时长 |
+| `Take_over` | 请求用户介入 |
+
+## 示例
+
+查看 `examples/` 目录获取更多使用示例：
+
+```bash
+# 基本使用
+cargo run --example basic_usage
+
+# 演示思考过程
+cargo run --example demo_thinking
+```
+
+## 许可证
+
+Apache-2.0 License
+
+## 致谢
+
+- 原始Python实现：[Open-AutoGLM](https://github.com/THUDM/Open-AutoGLM)
+- AutoGLM模型由THUDM提供

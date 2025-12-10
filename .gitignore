@@ -59,4 +59,28 @@ screenshots/
 call_model.py
 app_package_name.py
 
-/tmp
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Rust IDE
+.idea/
+*.iml
+
+# Rust debug
+debug/
+*.dSYM/
+
+# Rust build artifacts
+*.d
+*.rlib
+*.rmeta
+*.so
+*.dylib
+*.dll
+
+# Environment
+.env
+.env.local
