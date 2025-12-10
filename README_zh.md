@@ -49,12 +49,30 @@ phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
 ### 命令行
 
 ```bash
-# 设置环境变量（可选）
+# 方式1：使用 .env 文件（推荐）
+# 在项目根目录创建 .env 文件
+cat > .env << EOF
+MODEL_BASE_URL=http://localhost:8000/v1
+MODEL_API_KEY=EMPTY
+MODEL_NAME=autoglm-phone-9b
+AGENT_LANG=cn
+ADB_DEVICE_ID=your-device-id
+EOF
+
+# 方式2：设置环境变量
+# Linux/macOS:
 export MODEL_BASE_URL="http://localhost:8000/v1"
 export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # 或 "en"
 export ADB_DEVICE_ID="your-device-id"  # 单设备时可选
+
+# Windows PowerShell:
+$env:MODEL_BASE_URL="http://localhost:8000/v1"
+$env:MODEL_API_KEY="EMPTY"
+$env:MODEL_NAME="autoglm-phone-9b"
+$env:AGENT_LANG="cn"
+$env:ADB_DEVICE_ID="your-device-id"
 
 # 运行任务
 cargo run --release -- "打开微信发送消息给张三"

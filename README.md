@@ -49,12 +49,30 @@ phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
 ### CLI
 
 ```bash
-# Set environment variables (optional)
+# Option 1: Use a .env file (recommended)
+# Create a .env file in the project root
+cat > .env << EOF
+MODEL_BASE_URL=http://localhost:8000/v1
+MODEL_API_KEY=EMPTY
+MODEL_NAME=autoglm-phone-9b
+AGENT_LANG=cn
+ADB_DEVICE_ID=your-device-id
+EOF
+
+# Option 2: Set environment variables
+# Linux/macOS:
 export MODEL_BASE_URL="http://localhost:8000/v1"
 export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # or "en"
 export ADB_DEVICE_ID="your-device-id"  # optional for single device
+
+# Windows PowerShell:
+$env:MODEL_BASE_URL="http://localhost:8000/v1"
+$env:MODEL_API_KEY="EMPTY"
+$env:MODEL_NAME="autoglm-phone-9b"
+$env:AGENT_LANG="cn"
+$env:ADB_DEVICE_ID="your-device-id"
 
 # Run with a task
 cargo run --release -- "打开微信发送消息给张三"

@@ -8,6 +8,9 @@ use std::io::{self, BufRead, Write};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load .env file if present (ignore errors if file doesn't exist)
+    let _ = dotenvy::dotenv();
+
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
