@@ -3,7 +3,8 @@
 //! This is the main entry point for the phone-agent CLI tool.
 
 use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
-use phone_agent::model::{DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
+use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
 use std::env;
 use std::io::{self, BufRead, Write};
 
@@ -52,6 +53,12 @@ async fn main() -> anyhow::Result<()> {
         (scale_x, scale_y)
     };
 
+    // Check if calibration is requested
+    let enable_calibration = env::var("ENABLE_CALIBRATION")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+    let calibration_only = args.iter().any(|arg| arg == "--calibrate");
+
     // Build model config
     let model_config = ModelConfig::default()
         .with_base_url(&base_url)
@@ -64,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
     let mut agent_config = AgentConfig::default()
         .with_lang(&lang)
         .with_scale(scale_x, scale_y);
+    let device_id_clone = device_id.clone();
     if let Some(id) = device_id {
         agent_config = agent_config.with_device_id(id);
     }
@@ -77,7 +85,54 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref id) = agent_config.device_id {
         println!("Device: {}", id);
     }
+    if enable_calibration || calibration_only {
+        println!("Calibration: enabled");
+    }
     println!("================================================\n");
+
+    // Run calibration if requested
+    let (scale_x, scale_y) = if enable_calibration || calibration_only {
+        println!("🎯 Starting coordinate calibration...\n");
+        
+        // Build calibration config - screen size will be auto-detected from device screenshot
+        let mut calibration_config = CalibrationConfig::default()
+            .with_lang(&lang);
+        
+        if let Some(ref id) = device_id_clone {
+            calibration_config = calibration_config.with_device_id(id);
+        }
+        
+        let calibrator = CoordinateCalibrator::new(calibration_config);
+        let model_client = ModelClient::new(model_config.clone());
+        
+        let result = calibrator.calibrate(&model_client).await;
+        
+        if result.success {
+            println!("\n🎯 Detected screen size: {}x{}", result.screen_width, result.screen_height);
+            println!("🎯 Using calibrated scale factors: X={:.4}, Y={:.4}\n", result.scale_x, result.scale_y);
+            (result.scale_x, result.scale_y)
+        } else {
+            println!("\n⚠️ Calibration failed: {:?}", result.error);
+            println!("   Using default scale factors: X={:.4}, Y={:.4}\n", scale_x, scale_y);
+            (scale_x, scale_y)
+        }
+    } else {
+        (scale_x, scale_y)
+    };
+
+    // Exit if calibration-only mode
+    if calibration_only {
+        println!("Calibration complete. Suggested environment variables:");
+        println!("  COORDINATE_SCALE_X={:.4}", scale_x);
+        println!("  COORDINATE_SCALE_Y={:.4}", scale_y);
+        println!("\nOr use unified scale:");
+        let avg_scale = (scale_x + scale_y) / 2.0;
+        println!("  COORDINATE_SCALE={:.4}", avg_scale);
+        return Ok(());
+    }
+
+    // Update agent config with calibrated scale factors
+    let agent_config = agent_config.with_scale(scale_x, scale_y);
 
     // Create agent
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);

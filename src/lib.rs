@@ -45,9 +45,11 @@
 pub mod actions;
 pub mod adb;
 pub mod agent;
+pub mod calibration;
 pub mod config;
 pub mod model;
 
 pub use actions::DEFAULT_COORDINATE_SCALE;
 pub use agent::{AgentConfig, PhoneAgent, StepResult};
+pub use calibration::{CalibrationConfig, CalibrationResult, CoordinateCalibrator};
 pub use model::{ModelClient, ModelConfig, ModelResponse};

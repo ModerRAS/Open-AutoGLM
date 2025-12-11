@@ -29,6 +29,11 @@ base64 = "0.22"
 
 # Image processing
 image = "0.25"
+imageproc = "0.25"
+ab_glyph = "0.2"
+
+# Regex for parsing
+regex = "1"
 
 # Date/time
 chrono = "0.4"

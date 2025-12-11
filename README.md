@@ -179,6 +179,52 @@ let agent_config = AgentConfig::default()
     .with_scale(1.61, 1.61);   // Set X=1.61, Y=1.61 separately
 ```
 
+### Automatic Coordinate Calibration
+
+The phone agent includes a built-in calibration feature that automatically determines the optimal coordinate scale factors by generating test images and asking the LLM to identify marker positions.
+
+**How it works**:
+1. Takes a screenshot from the connected device to detect actual screen dimensions
+2. Generates test images with visual markers at known pixel coordinates (matching screen size)
+3. Sends these images to the LLM and asks it to report the marker positions
+4. Compares LLM-reported coordinates with actual coordinates
+5. Calculates the scale factor from the ratio of expected/reported coordinates
+
+**CLI Usage**:
+```bash
+# Run calibration only (outputs recommended scale factors)
+cargo run --release -- --calibrate
+
+# Enable calibration before each session
+ENABLE_CALIBRATION=true cargo run --release
+```
+
+**Environment Variables**:
+- `ENABLE_CALIBRATION` - Set to `true` or `1` to enable calibration at startup
+
+**As a Library**:
+```rust
+use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::model::ModelClient;
+
+async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
+    // Screen size is automatically detected from device screenshot
+    let config = CalibrationConfig::default()
+        .with_lang("cn")
+        .with_device_id("your-device-id");  // Optional
+    
+    let calibrator = CoordinateCalibrator::new(config);
+    let result = calibrator.calibrate(model_client).await;
+    
+    if result.success {
+        println!("Screen: {}x{}", result.screen_width, result.screen_height);
+        (result.scale_x, result.scale_y)
+    } else {
+        (1.61, 1.61)  // fallback to default
+    }
+}
+```
+
 ## Project Structure
 
 ```
@@ -194,6 +240,8 @@ src/
 │   ├── device.rs       # Device control (tap, swipe, etc.)
 │   ├── input.rs        # Text input utilities
 │   └── screenshot.rs   # Screenshot capture
+├── calibration/        # Coordinate calibration
+│   └── calibrator.rs   # Auto scale factor detection
 ├── config/             # Configuration
 │   ├── apps.rs         # App package mappings
 │   ├── i18n.rs         # Internationalization

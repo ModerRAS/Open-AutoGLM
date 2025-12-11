@@ -179,6 +179,52 @@ let agent_config = AgentConfig::default()
     .with_scale(1.61, 1.61);   // 分别设置X和Y
 ```
 
+### 自动坐标校准
+
+Phone Agent 内置坐标校准功能，可以通过生成带有标记的测试图片，让 LLM 自动识别坐标位置，从而计算出最佳的坐标缩放因子。
+
+**工作原理**：
+1. 从连接的设备截图以检测实际屏幕尺寸
+2. 生成带有可视标记的测试图片，标记位于已知像素坐标（匹配屏幕尺寸）
+3. 将图片发送给 LLM，询问其标记位置
+4. 比较 LLM 报告的坐标与实际坐标
+5. 根据期望值/报告值的比率计算缩放因子
+
+**命令行用法**：
+```bash
+# 仅运行校准（输出推荐的缩放因子）
+cargo run --release -- --calibrate
+
+# 每次启动时自动校准
+ENABLE_CALIBRATION=true cargo run --release
+```
+
+**环境变量**：
+- `ENABLE_CALIBRATION` - 设置为 `true` 或 `1` 启用启动时校准
+
+**作为库使用**：
+```rust
+use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::model::ModelClient;
+
+async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
+    // 屏幕尺寸会自动从设备截图中检测
+    let config = CalibrationConfig::default()
+        .with_lang("cn")
+        .with_device_id("your-device-id");  // 可选
+    
+    let calibrator = CoordinateCalibrator::new(config);
+    let result = calibrator.calibrate(model_client).await;
+    
+    if result.success {
+        println!("屏幕: {}x{}", result.screen_width, result.screen_height);
+        (result.scale_x, result.scale_y)
+    } else {
+        (1.61, 1.61)  // 回退到默认值
+    }
+}
+```
+
 ## 项目结构
 
 ```
@@ -194,6 +240,8 @@ src/
 │   ├── device.rs       # 设备控制（点击、滑动等）
 │   ├── input.rs        # 文本输入工具
 │   └── screenshot.rs   # 截图捕获
+├── calibration/        # 坐标校准
+│   └── calibrator.rs   # 自动缩放因子检测
 ├── config/             # 配置
 │   ├── apps.rs         # 应用包名映射
 │   ├── i18n.rs         # 国际化
