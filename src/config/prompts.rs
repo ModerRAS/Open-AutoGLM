@@ -2,8 +2,8 @@
 
 use chrono::{Datelike, Local};
 
-/// Get the Chinese system prompt with current date.
-pub fn get_system_prompt_zh() -> String {
+/// Get the Chinese system prompt with current date and screen resolution.
+pub fn get_system_prompt_zh_with_resolution(width: u32, height: u32) -> String {
     let today = Local::now();
     let weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
     let weekday = weekday_names[today.weekday().num_days_from_monday() as usize];
@@ -14,18 +14,42 @@ pub fn get_system_prompt_zh() -> String {
         weekday
     );
     
-    format!("今天的日期是: {}\n{}", formatted_date, SYSTEM_PROMPT_ZH)
+    format!(
+        "今天的日期是: {}\n当前屏幕分辨率: {}x{} (宽x高)\n{}",
+        formatted_date, width, height, SYSTEM_PROMPT_ZH
+    )
 }
 
-/// Get the English system prompt with current date.
-pub fn get_system_prompt_en() -> String {
+/// Get the English system prompt with current date and screen resolution.
+pub fn get_system_prompt_en_with_resolution(width: u32, height: u32) -> String {
     let today = Local::now();
     let formatted_date = today.format("%B %d, %Y").to_string();
     
-    format!("Today's date is: {}\n{}", formatted_date, SYSTEM_PROMPT_EN)
+    format!(
+        "Today's date is: {}\nCurrent screen resolution: {}x{} (width x height)\n{}",
+        formatted_date, width, height, SYSTEM_PROMPT_EN
+    )
 }
 
-/// Get the system prompt by language.
+/// Get the system prompt by language with screen resolution.
+pub fn get_system_prompt_with_resolution(lang: &str, width: u32, height: u32) -> String {
+    match lang {
+        "en" => get_system_prompt_en_with_resolution(width, height),
+        _ => get_system_prompt_zh_with_resolution(width, height),
+    }
+}
+
+/// Get the Chinese system prompt with current date (legacy, uses relative coordinates).
+pub fn get_system_prompt_zh() -> String {
+    get_system_prompt_zh_with_resolution(1080, 1920)
+}
+
+/// Get the English system prompt with current date (legacy, uses relative coordinates).
+pub fn get_system_prompt_en() -> String {
+    get_system_prompt_en_with_resolution(1080, 1920)
+}
+
+/// Get the system prompt by language (legacy, uses default resolution).
 pub fn get_system_prompt(lang: &str) -> String {
     match lang {
         "en" => get_system_prompt_en(),
@@ -44,20 +68,19 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 - {action} 是本次执行的具体操作指令，必须严格遵循下方定义的指令格式。
 
 【坐标系统说明】
-所有涉及坐标的操作（Tap、Swipe、Long Press、Double Tap等）使用的是**相对坐标系统**：
-- 坐标范围：X 和 Y 都必须在 [0, 1000] 范围内
+所有涉及坐标的操作（Tap、Swipe、Long Press、Double Tap等）使用的是**绝对像素坐标**：
+- 屏幕分辨率已在上方提供，格式为"宽x高"
 - 坐标原点：屏幕左上角为 (0, 0)
-- 坐标终点：屏幕右下角为 (1000, 1000)
-- 坐标转换：相对坐标会按比例转换为实际屏幕像素坐标
-  - 例如：在 1080x1920 的屏幕上，相对坐标 (500, 500) 会转换为像素坐标 (540, 960)
-  - 转换公式：实际X = 相对X / 1000 × 屏幕宽度，实际Y = 相对Y / 1000 × 屏幕高度
-- **重要**：如果提供的坐标超出 [0, 1000] 范围，操作将失败并返回错误信息
+- 坐标范围：X 必须在 [0, 屏幕宽度] 范围内，Y 必须在 [0, 屏幕高度] 范围内
+- 坐标单位：像素（pixel）
+- **重要**：如果提供的坐标超出屏幕范围，操作将失败并返回错误信息
+- 示例：在 1080x1920 的屏幕上，屏幕中心点坐标为 (540, 960)
 
 操作指令及其作用如下：
 - do(action="Launch", app="xxx")  
     Launch是启动目标app的操作，这比通过主屏幕导航更快。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Tap", element=[x,y])  
-    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的截图。
+    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标为绝对像素坐标，必须在屏幕范围内。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Tap", element=[x,y], message="重要操作")  
     基本功能同Tap，点击涉及财产、支付、隐私等敏感按钮时触发。
 - do(action="Type", text="xxx")  
@@ -67,11 +90,11 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 - do(action="Interact")  
     Interact是当有多个满足条件的选项时而触发的交互操作，询问用户如何选择。
 - do(action="Swipe", start=[x1,y1], end=[x2,y2])  
-    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。起始和结束坐标都必须在 [0, 1000] 范围内。滑动持续时间会自动调整以实现自然的移动。
+    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。起始和结束坐标都为绝对像素坐标，必须在屏幕范围内。滑动持续时间会自动调整以实现自然的移动。
     **滑动注意事项**：
     - 很多App底部有固定的导航栏、输入框或回复栏（如小红书、微信、微博等），这些区域不会随页面滚动
     - 如果滑动起点落在这些固定区域内，滑动将不会生效
-    - 向上滑动查看更多内容时，建议起点Y坐标在 [200, 750] 范围内，避开顶部状态栏和底部固定栏
+    - 向上滑动查看更多内容时，建议起点Y坐标在屏幕高度的 20%-75% 范围内，避开顶部状态栏和底部固定栏
     - 向下滑动时同理，终点Y坐标也应避开固定区域
     - 如果连续滑动多次页面没有变化，请调整滑动起点位置，将起点移到页面中间的可滚动内容区域
     此操作完成后，您将自动收到结果状态的截图。
@@ -80,9 +103,9 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 - do(action="Call_API", instruction="xxx")  
     总结或评论当前页面或已记录的内容。
 - do(action="Long Press", element=[x,y])  
-    Long Press是长按操作，在屏幕上的特定点长按指定时间。可用于触发上下文菜单、选择文本或激活长按交互。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的屏幕截图。
+    Long Press是长按操作，在屏幕上的特定点长按指定时间。可用于触发上下文菜单、选择文本或激活长按交互。坐标为绝对像素坐标，必须在屏幕范围内。此操作完成后，您将自动收到结果状态的屏幕截图。
 - do(action="Double Tap", element=[x,y])  
-    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标必须在 [0, 1000] 范围内。此操作完成后，您将自动收到结果状态的截图。
+    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标为绝对像素坐标，必须在屏幕范围内。此操作完成后，您将自动收到结果状态的截图。
 - do(action="Take_over", message="xxx")  
     Take_over是接管操作，表示在登录和验证阶段需要用户协助。
 - do(action="Back")  
@@ -111,7 +134,7 @@ pub static SYSTEM_PROMPT_ZH: &str = r#"你是一个智能体分析专家，可�
 14. 在执行下一步操作前请一定要检查上一步的操作是否生效，如果点击没生效，可能因为app反应较慢，请先稍微等待一下，如果还是不生效请调整一下点击位置重试，如果仍然不生效请跳过这一步继续任务，并在finish message说明点击不生效。
 15. 在执行任务中如果遇到滑动不生效的情况：
     - 首先检查滑动起点是否落在了固定区域（如底部导航栏、回复框、输入栏等），这些区域不会响应滑动
-    - 将滑动起点移到页面中间的内容区域（建议Y坐标在 300-700 之间）
+    - 将滑动起点移到页面中间的内容区域（建议Y坐标在屏幕高度的 30%-70% 范围内）
     - 增大滑动距离重试
     - 如果调整后仍不生效，可能是已经滑到顶部或底部了，请尝试向反方向滑动
     - 如果连续3次滑动都没有效果，请跳过这一步继续任务，并在finish message说明滑动不生效或没找到要求的项目
@@ -131,20 +154,19 @@ Where:
 - {action} is the specific operation instruction to execute, which must strictly follow the instruction format defined below.
 
 【Coordinate System】
-All coordinate-based operations (Tap, Swipe, Long Press, Double Tap, etc.) use a **relative coordinate system**:
-- Coordinate range: Both X and Y must be within [0, 1000]
+All coordinate-based operations (Tap, Swipe, Long Press, Double Tap, etc.) use **absolute pixel coordinates**:
+- Screen resolution is provided above in "width x height" format
 - Origin: Top-left corner of the screen is (0, 0)
-- End point: Bottom-right corner of the screen is (1000, 1000)
-- Coordinate conversion: Relative coordinates are proportionally converted to actual screen pixel coordinates
-  - Example: On a 1080x1920 screen, relative coordinate (500, 500) converts to pixel coordinate (540, 960)
-  - Formula: Actual X = Relative X / 1000 × Screen Width, Actual Y = Relative Y / 1000 × Screen Height
-- **Important**: If provided coordinates are outside the [0, 1000] range, the operation will fail and return an error message
+- Coordinate range: X must be within [0, screen width], Y must be within [0, screen height]
+- Unit: pixels
+- **Important**: If provided coordinates are outside the screen range, the operation will fail and return an error message
+- Example: On a 1080x1920 screen, the center point is (540, 960)
 
 Operation instructions and their functions are as follows:
 - do(action="Launch", app="xxx")  
     Launch starts the target app, which is faster than navigating through the home screen. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Tap", element=[x,y])  
-    Tap is a click operation that clicks a specific point on the screen. Use this operation to click buttons, select items, open applications from the home screen, or interact with any clickable UI element. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
+    Tap is a click operation that clicks a specific point on the screen. Use this operation to click buttons, select items, open applications from the home screen, or interact with any clickable UI element. Coordinates are absolute pixel coordinates and must be within screen range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Tap", element=[x,y], message="Important operation")  
     Same basic function as Tap, triggered when clicking sensitive buttons involving property, payment, privacy, etc.
 - do(action="Type", text="xxx")  
@@ -154,11 +176,11 @@ Operation instructions and their functions are as follows:
 - do(action="Interact")  
     Interact is an interactive operation triggered when there are multiple options that meet the criteria, asking the user how to choose.
 - do(action="Swipe", start=[x1,y1], end=[x2,y2])  
-    Swipe executes a swipe gesture by dragging from start coordinates to end coordinates. Can be used to scroll content, navigate between screens, pull down notification bar and item bars, or perform gesture-based navigation. Both start and end coordinates must be within [0, 1000] range. Swipe duration is automatically adjusted for natural movement.
+    Swipe executes a swipe gesture by dragging from start coordinates to end coordinates. Can be used to scroll content, navigate between screens, pull down notification bar and item bars, or perform gesture-based navigation. Both start and end coordinates are absolute pixel coordinates and must be within screen range. Swipe duration is automatically adjusted for natural movement.
     **Swipe Tips**:
     - Many apps have fixed navigation bars, input boxes, or reply bars at the bottom (e.g., Xiaohongshu, WeChat, Weibo), which don't scroll with the page
     - If the swipe starting point falls within these fixed areas, the swipe will not work
-    - When swiping up to view more content, keep the starting Y coordinate within [200, 750] range to avoid top status bar and bottom fixed bars
+    - When swiping up to view more content, keep the starting Y coordinate within 20%-75% of screen height to avoid top status bar and bottom fixed bars
     - Same applies when swiping down - end Y coordinate should also avoid fixed areas
     - If the page doesn't change after multiple consecutive swipes, adjust the swipe starting point to the scrollable content area in the middle of the page
     After this operation, you will automatically receive a screenshot of the result state.
@@ -167,9 +189,9 @@ Operation instructions and their functions are as follows:
 - do(action="Call_API", instruction="xxx")  
     Summarize or comment on current page or recorded content.
 - do(action="Long Press", element=[x,y])  
-    Long Press performs a long press at a specific point on the screen for a specified time. Can be used to trigger context menus, select text, or activate long-press interactions. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
+    Long Press performs a long press at a specific point on the screen for a specified time. Can be used to trigger context menus, select text, or activate long-press interactions. Coordinates are absolute pixel coordinates and must be within screen range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Double Tap", element=[x,y])  
-    Double Tap quickly taps twice consecutively at a specific point on the screen. Use this operation to activate double-tap interactions such as zooming, selecting text, or opening items. Coordinates must be within [0, 1000] range. After this operation, you will automatically receive a screenshot of the result state.
+    Double Tap quickly taps twice consecutively at a specific point on the screen. Use this operation to activate double-tap interactions such as zooming, selecting text, or opening items. Coordinates are absolute pixel coordinates and must be within screen range. After this operation, you will automatically receive a screenshot of the result state.
 - do(action="Take_over", message="xxx")  
     Take_over is a takeover operation indicating user assistance is needed during login and verification stages.
 - do(action="Back")  
@@ -198,7 +220,7 @@ Rules that must be followed:
 14. Before executing the next operation, be sure to check if the previous operation took effect. If click didn't work, possibly due to slow app response, wait a moment first. If still not working, adjust the click position and retry. If still not working, skip this step and continue the task, noting in finish message that click didn't work.
 15. During task execution, if swipe doesn't work:
     - First check if the swipe starting point is in a fixed area (such as bottom navigation bar, reply box, input bar, etc.), these areas won't respond to swipes
-    - Move the swipe starting point to the content area in the middle of the page (recommended Y coordinate between 300-700)
+    - Move the swipe starting point to the content area in the middle of the page (recommended Y coordinate between 1/4 and 3/4 of screen height)
     - Increase swipe distance and retry
     - If still not working after adjustment, you may have reached the top or bottom, try swiping in the opposite direction
     - If 3 consecutive swipes have no effect, skip this step and continue the task, noting in finish message that swipe didn't work or the required item was not found
@@ -218,5 +240,22 @@ mod tests {
         
         let en = get_system_prompt("en");
         assert!(en.contains("Today's date is"));
+    }
+
+    #[test]
+    fn test_get_system_prompt_with_resolution() {
+        let zh = get_system_prompt_with_resolution("cn", 1080, 1920);
+        assert!(zh.contains("今天的日期是"));
+        assert!(zh.contains("当前屏幕分辨率: 1080x1920"));
+        // Check that the prompt includes absolute coordinate system info
+        assert!(zh.contains("绝对像素坐标"));
+        assert!(zh.contains("[0, 屏幕宽度]"));
+        
+        let en = get_system_prompt_with_resolution("en", 1080, 1920);
+        assert!(en.contains("Today's date is"));
+        assert!(en.contains("Current screen resolution: 1080x1920"));
+        // Check that the prompt includes absolute coordinate system info
+        assert!(en.contains("absolute pixel coordinates"));
+        assert!(en.contains("[0, screen width]"));
     }
 }

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::actions::{finish_action, parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback};
 use crate::adb::{get_current_app, get_screenshot};
-use crate::config::{get_messages, get_system_prompt};
+use crate::config::{get_messages, get_system_prompt, get_system_prompt_with_resolution};
 use crate::model::{MessageBuilder, ModelClient, ModelConfig};
 
 /// Agent errors.
@@ -74,10 +74,19 @@ impl AgentConfig {
     }
 
     /// Get the system prompt (custom or default based on language).
+    /// This version doesn't include screen resolution information.
     pub fn get_system_prompt(&self) -> String {
         self.system_prompt
             .clone()
             .unwrap_or_else(|| get_system_prompt(&self.lang))
+    }
+
+    /// Get the system prompt with screen resolution information.
+    /// This is the preferred method when screen dimensions are known.
+    pub fn get_system_prompt_with_resolution(&self, width: u32, height: u32) -> String {
+        self.system_prompt
+            .clone()
+            .unwrap_or_else(|| get_system_prompt_with_resolution(&self.lang, width, height))
     }
 }
 
@@ -223,8 +232,12 @@ impl PhoneAgent {
 
         // Build messages
         if is_first {
+            // Use system prompt with screen resolution for absolute coordinate system
             self.context.push(MessageBuilder::create_system_message(
-                &self.agent_config.get_system_prompt(),
+                &self.agent_config.get_system_prompt_with_resolution(
+                    screenshot.width,
+                    screenshot.height,
+                ),
             ));
 
             let screen_info = MessageBuilder::build_screen_info(&current_app);
