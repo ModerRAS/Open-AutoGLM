@@ -1,7 +1,6 @@
 //! Model client for AI inference using OpenAI-compatible API.
 
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -104,22 +103,6 @@ pub struct ModelResponse {
     pub raw_content: String,
 }
 
-/// OpenAI API response structures.
-#[derive(Debug, Deserialize)]
-struct ChatCompletionResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: Message,
-}
-
-#[derive(Debug, Deserialize)]
-struct Message {
-    content: String,
-}
-
 /// Client for interacting with OpenAI-compatible vision-language models.
 pub struct ModelClient {
     config: ModelConfig,
@@ -164,6 +147,8 @@ impl ModelClient {
             for (key, value) in &self.config.extra_body {
                 map.insert(key.clone(), value.clone());
             }
+            // Explicitly disable streaming to get complete JSON response
+            map.insert("stream".to_string(), json!(false));
         }
 
         let mut last_error: Option<ModelError> = None;
@@ -236,24 +221,211 @@ impl ModelClient {
             .await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(ModelError::ApiError(error_text));
+            return Err(ModelError::ApiError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )));
         }
 
-        let completion: ChatCompletionResponse = response.json().await?;
+        // Get the raw response text first for debugging
+        let response_text = response.text().await?;
+        
+        // Check if this is a streaming response (multiple JSON objects concatenated)
+        // Streaming responses have format: {"...chunk1"}{"...chunk2"}...
+        let json_value = if response_text.contains("}{") || response_text.contains("chat.completion.chunk") {
+            // Handle streaming response - parse all chunks and combine content
+            self.parse_streaming_response(&response_text)?
+        } else {
+            // Regular JSON response
+            serde_json::from_str(&response_text).map_err(|e| {
+                ModelError::ParseError(format!(
+                    "Failed to parse JSON: {}. Response: {}",
+                    e,
+                    Self::truncate_for_error(&response_text)
+                ))
+            })?
+        };
 
-        if completion.choices.is_empty() {
-            return Err(ModelError::ParseError("No choices in response".to_string()));
-        }
+        // Extract the content - try multiple possible paths
+        let raw_content = self.extract_content(&json_value).ok_or_else(|| {
+            ModelError::ParseError(format!(
+                "Could not find content in response. Structure: {}",
+                Self::truncate_for_error(&response_text)
+            ))
+        })?;
 
-        let raw_content = &completion.choices[0].message.content;
-        let (thinking, action) = Self::parse_response(raw_content);
+        let (thinking, action) = Self::parse_response(&raw_content);
 
         Ok(ModelResponse {
             thinking,
             action,
             raw_content: raw_content.clone(),
         })
+    }
+
+    /// Truncate response text for error messages
+    fn truncate_for_error(text: &str) -> String {
+        if text.len() > 500 {
+            format!("{}...(truncated)", &text[..500])
+        } else {
+            text.to_string()
+        }
+    }
+
+    /// Parse streaming response (multiple JSON chunks concatenated)
+    fn parse_streaming_response(&self, response_text: &str) -> Result<Value, ModelError> {
+        let mut combined_content = String::new();
+        
+        // Simple approach: split by }{ and reconstruct valid JSON objects
+        let chunks: Vec<String> = if response_text.contains("}{") {
+            let fixed = response_text.replace("}{", "}\n{");
+            fixed.lines()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.trim().to_string())
+                .collect()
+        } else {
+            // Maybe newline separated
+            response_text.lines()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.trim().to_string())
+                .collect()
+        };
+
+        for chunk_str in &chunks {
+            if chunk_str.is_empty() || chunk_str == "[DONE]" {
+                continue;
+            }
+            
+            // Remove "data: " prefix if present (SSE format)
+            let json_str = chunk_str.strip_prefix("data: ").unwrap_or(chunk_str);
+            if json_str.is_empty() || json_str == "[DONE]" {
+                continue;
+            }
+
+            // Try to parse this chunk
+            if let Ok(chunk_json) = serde_json::from_str::<Value>(json_str) {
+                // Extract delta content from streaming chunk
+                if let Some(content) = chunk_json
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    combined_content.push_str(content);
+                }
+                // Also check message.content for final chunks
+                else if let Some(content) = chunk_json
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    combined_content.push_str(content);
+                }
+            }
+        }
+
+        if combined_content.is_empty() {
+            return Err(ModelError::ParseError(format!(
+                "No content found in streaming response. Chunks: {}",
+                Self::truncate_for_error(response_text)
+            )));
+        }
+
+        // Return as a simple JSON with the combined content
+        Ok(json!({
+            "choices": [{
+                "message": {
+                    "content": combined_content
+                }
+            }]
+        }))
+    }
+
+    /// Extract content from various API response formats.
+    /// Supports OpenAI, vLLM, and other compatible formats.
+    fn extract_content(&self, json: &Value) -> Option<String> {
+        // Standard OpenAI format: choices[0].message.content
+        if let Some(content) = json
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // Alternative: choices[0].text (older completions API)
+        if let Some(content) = json
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("text"))
+            .and_then(|c| c.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // Some APIs return content directly in message
+        if let Some(content) = json
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // Some APIs return content directly
+        if let Some(content) = json.get("content").and_then(|c| c.as_str()) {
+            return Some(content.to_string());
+        }
+
+        // vLLM specific: output or outputs
+        if let Some(content) = json.get("output").and_then(|c| c.as_str()) {
+            return Some(content.to_string());
+        }
+        if let Some(content) = json
+            .get("outputs")
+            .and_then(|o| o.get(0))
+            .and_then(|o| o.get("text"))
+            .and_then(|c| c.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // Anthropic format: content[0].text
+        if let Some(content) = json
+            .get("content")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // response.text (some custom APIs)
+        if let Some(content) = json
+            .get("response")
+            .and_then(|r| r.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        // result.text or result.content
+        if let Some(content) = json
+            .get("result")
+            .and_then(|r| r.get("text").or(r.get("content")))
+            .and_then(|t| t.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        None
     }
 
     /// Parse the model response into thinking and action parts.
