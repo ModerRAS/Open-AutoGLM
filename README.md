@@ -57,6 +57,11 @@ MODEL_API_KEY=EMPTY
 MODEL_NAME=autoglm-phone-9b
 AGENT_LANG=cn
 ADB_DEVICE_ID=your-device-id
+# Coordinate scale factor (LLM output × scale = actual coordinate)
+COORDINATE_SCALE=1.61
+# Or set X and Y separately:
+# COORDINATE_SCALE_X=1.61
+# COORDINATE_SCALE_Y=1.61
 EOF
 
 # Option 2: Set environment variables
@@ -66,6 +71,7 @@ export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # or "en"
 export ADB_DEVICE_ID="your-device-id"  # optional for single device
+export COORDINATE_SCALE="1.61"  # coordinate scale factor
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -73,6 +79,7 @@ $env:MODEL_API_KEY="EMPTY"
 $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
+$env:COORDINATE_SCALE="1.61"
 
 # Run with a task
 cargo run --release -- "打开微信发送消息给张三"

@@ -57,6 +57,11 @@ MODEL_API_KEY=EMPTY
 MODEL_NAME=autoglm-phone-9b
 AGENT_LANG=cn
 ADB_DEVICE_ID=your-device-id
+# 坐标缩放因子（LLM输出 × 缩放 = 实际坐标）
+COORDINATE_SCALE=1.61
+# 或者分别设置X和Y：
+# COORDINATE_SCALE_X=1.61
+# COORDINATE_SCALE_Y=1.61
 EOF
 
 # 方式2：设置环境变量
@@ -66,6 +71,7 @@ export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # 或 "en"
 export ADB_DEVICE_ID="your-device-id"  # 单设备时可选
+export COORDINATE_SCALE="1.61"  # 坐标缩放因子
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -73,6 +79,7 @@ $env:MODEL_API_KEY="EMPTY"
 $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
+$env:COORDINATE_SCALE="1.61"
 
 # 运行任务
 cargo run --release -- "打开微信发送消息给张三"
@@ -124,6 +131,37 @@ async fn main() -> anyhow::Result<()> {
 | `device_id` | `None` | ADB设备ID（可选） |
 | `lang` | `cn` | 提示和消息的语言 |
 | `verbose` | `true` | 打印详细输出 |
+| `scale_x` | `1.61` | X坐标缩放因子 |
+| `scale_y` | `1.61` | Y坐标缩放因子 |
+
+### 坐标缩放配置
+
+坐标缩放因子用于将LLM输出的坐标调整为实际屏幕坐标。当模型输出的坐标与实际屏幕像素不一致时，可以使用此功能进行校正。
+
+**计算公式**：`实际坐标 = LLM输出 × 缩放因子`
+
+**环境变量**：
+- `COORDINATE_SCALE` - 同时设置X和Y缩放因子（优先级最高）
+- `COORDINATE_SCALE_X` - 仅设置X缩放因子
+- `COORDINATE_SCALE_Y` - 仅设置Y缩放因子
+
+**示例**（在 `.env` 文件中）：
+```bash
+# 设置统一缩放因子
+COORDINATE_SCALE=1.61
+
+# 或者分别设置X和Y
+COORDINATE_SCALE_X=1.61
+COORDINATE_SCALE_Y=1.61
+```
+
+**作为库使用**：
+```rust
+let agent_config = AgentConfig::default()
+    .with_uniform_scale(1.61)  // X和Y使用相同值
+    // 或者
+    .with_scale(1.61, 1.61);   // 分别设置X和Y
+```
 
 ## 项目结构
 
