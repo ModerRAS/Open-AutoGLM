@@ -4,9 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{DynamicImage, RgbImage};
 use std::io::Cursor;
 use std::process::Command;
-use std::{env, fs};
 use thiserror::Error;
-use uuid::Uuid;
 
 use super::connection::get_adb_prefix;
 
@@ -51,6 +49,9 @@ impl Screenshot {
 
 /// Capture a screenshot from the connected Android device.
 ///
+/// This function uses `adb exec-out screencap -p` to capture the screenshot
+/// directly to stdout, avoiding disk I/O on both the device and host.
+///
 /// # Arguments
 /// * `device_id` - Optional ADB device ID for multi-device setups.
 ///
@@ -61,72 +62,54 @@ impl Screenshot {
 /// If the screenshot fails (e.g., on sensitive screens like payment pages),
 /// a black fallback image is returned with is_sensitive=True.
 pub fn get_screenshot(device_id: Option<&str>) -> Screenshot {
-    let temp_dir = env::temp_dir();
-    let temp_filename = format!("screenshot_{}.png", Uuid::new_v4());
-    let temp_path = temp_dir.join(&temp_filename);
     let prefix = get_adb_prefix(device_id);
 
-    // Execute screenshot command
+    // Use exec-out to get screenshot directly to stdout (no disk I/O)
+    // This is much faster than shell screencap + pull
     let result = Command::new(&prefix[0])
         .args(&prefix[1..])
-        .args(["shell", "screencap", "-p", "/sdcard/tmp.png"])
+        .args(["exec-out", "screencap", "-p"])
         .output();
 
     match result {
         Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Check for errors in stderr
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let combined = format!("{}{}", stdout, stderr);
-
-            // Check for screenshot failure (sensitive screen)
-            if combined.contains("Status: -1") || combined.contains("Failed") {
+            if stderr.contains("Status: -1") || stderr.contains("Failed") || stderr.contains("error") {
+                tracing::warn!("Screenshot may have failed (sensitive screen): {}", stderr);
                 return create_fallback_screenshot(true);
+            }
+
+            // Check if we got valid PNG data
+            let png_data = &output.stdout;
+            if png_data.len() < 8 {
+                tracing::error!("Screenshot data too small: {} bytes", png_data.len());
+                return create_fallback_screenshot(false);
+            }
+
+            // Verify PNG magic bytes
+            if &png_data[0..8] != b"\x89PNG\r\n\x1a\n" {
+                tracing::error!("Invalid PNG header, got: {:?}", &png_data[0..8.min(png_data.len())]);
+                return create_fallback_screenshot(false);
+            }
+
+            // Parse the image to get dimensions
+            match image::load_from_memory(png_data) {
+                Ok(img) => {
+                    let width = img.width();
+                    let height = img.height();
+                    let base64_data = STANDARD.encode(png_data);
+
+                    Screenshot::new(base64_data, width, height, false)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse screenshot image: {}", e);
+                    create_fallback_screenshot(false)
+                }
             }
         }
         Err(e) => {
             tracing::error!("Screenshot command failed: {}", e);
-            return create_fallback_screenshot(false);
-        }
-    }
-
-    // Pull screenshot to local temp path
-    let pull_result = Command::new(&prefix[0])
-        .args(&prefix[1..])
-        .args(["pull", "/sdcard/tmp.png", temp_path.to_str().unwrap_or("")])
-        .output();
-
-    if pull_result.is_err() {
-        return create_fallback_screenshot(false);
-    }
-
-    // Check if file exists and read it
-    if !temp_path.exists() {
-        return create_fallback_screenshot(false);
-    }
-
-    // Read and encode image
-    match image::open(&temp_path) {
-        Ok(img) => {
-            let width = img.width();
-            let height = img.height();
-
-            // Encode to PNG and then to base64
-            let mut buffer = Cursor::new(Vec::new());
-            if img.write_to(&mut buffer, image::ImageFormat::Png).is_err() {
-                let _ = fs::remove_file(&temp_path);
-                return create_fallback_screenshot(false);
-            }
-
-            let base64_data = STANDARD.encode(buffer.into_inner());
-
-            // Cleanup temp file
-            let _ = fs::remove_file(&temp_path);
-
-            Screenshot::new(base64_data, width, height, false)
-        }
-        Err(e) => {
-            tracing::error!("Failed to read screenshot: {}", e);
-            let _ = fs::remove_file(&temp_path);
             create_fallback_screenshot(false)
         }
     }
