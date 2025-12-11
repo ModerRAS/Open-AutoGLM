@@ -3,6 +3,7 @@
 //! This is the main entry point for the phone-agent CLI tool.
 
 use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
+use phone_agent::model::{DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
 use std::env;
 use std::io::{self, BufRead, Write};
 
@@ -23,6 +24,16 @@ async fn main() -> anyhow::Result<()> {
     let model_name = env::var("MODEL_NAME").unwrap_or_else(|_| "autoglm-phone-9b".to_string());
     let device_id = env::var("ADB_DEVICE_ID").ok();
     let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
+    
+    // Get retry configuration from environment
+    let max_retries: u32 = env::var("MODEL_MAX_RETRIES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_MAX_RETRIES);
+    let retry_delay: u64 = env::var("MODEL_RETRY_DELAY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_RETRY_DELAY_SECS);
     
     // Get coordinate scale factors from environment (default: 1.61)
     let scale_x: f64 = env::var("COORDINATE_SCALE_X")
@@ -45,7 +56,9 @@ async fn main() -> anyhow::Result<()> {
     let model_config = ModelConfig::default()
         .with_base_url(&base_url)
         .with_api_key(&api_key)
-        .with_model_name(&model_name);
+        .with_model_name(&model_name)
+        .with_max_retries(max_retries)
+        .with_retry_delay(retry_delay);
 
     // Build agent config
     let mut agent_config = AgentConfig::default()
@@ -60,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Model: {} @ {}", model_name, base_url);
     println!("Language: {}", lang);
     println!("Coordinate Scale: X={:.2}, Y={:.2}", scale_x, scale_y);
+    println!("Retry: max {} attempts, {}s delay", max_retries, retry_delay);
     if let Some(ref id) = agent_config.device_id {
         println!("Device: {}", id);
     }

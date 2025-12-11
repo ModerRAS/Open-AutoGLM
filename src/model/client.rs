@@ -4,7 +4,15 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::time::Duration;
 use thiserror::Error;
+use tokio::time::sleep;
+
+/// Default number of retry attempts for failed requests.
+pub const DEFAULT_MAX_RETRIES: u32 = 3;
+
+/// Default delay between retry attempts in seconds.
+pub const DEFAULT_RETRY_DELAY_SECS: u64 = 2;
 
 /// Model client errors.
 #[derive(Error, Debug)]
@@ -15,6 +23,8 @@ pub enum ModelError {
     ParseError(String),
     #[error("API error: {0}")]
     ApiError(String),
+    #[error("Max retries exceeded after {0} attempts: {1}")]
+    MaxRetriesExceeded(u32, String),
 }
 
 /// Configuration for the AI model.
@@ -28,6 +38,10 @@ pub struct ModelConfig {
     pub top_p: f32,
     pub frequency_penalty: f32,
     pub extra_body: HashMap<String, Value>,
+    /// Maximum number of retry attempts for failed requests.
+    pub max_retries: u32,
+    /// Delay between retry attempts in seconds.
+    pub retry_delay_secs: u64,
 }
 
 impl Default for ModelConfig {
@@ -44,6 +58,8 @@ impl Default for ModelConfig {
             top_p: 0.85,
             frequency_penalty: 0.2,
             extra_body,
+            max_retries: DEFAULT_MAX_RETRIES,
+            retry_delay_secs: DEFAULT_RETRY_DELAY_SECS,
         }
     }
 }
@@ -64,6 +80,18 @@ impl ModelConfig {
     /// Create a new ModelConfig with custom model name.
     pub fn with_model_name(mut self, model_name: impl Into<String>) -> Self {
         self.model_name = model_name.into();
+        self
+    }
+
+    /// Set the maximum number of retry attempts for failed requests.
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// Set the delay between retry attempts in seconds.
+    pub fn with_retry_delay(mut self, delay_secs: u64) -> Self {
+        self.retry_delay_secs = delay_secs;
         self
     }
 }
@@ -138,12 +166,72 @@ impl ModelClient {
             }
         }
 
+        let mut last_error: Option<ModelError> = None;
+        let max_attempts = self.config.max_retries + 1; // +1 for the initial attempt
+
+        for attempt in 1..=max_attempts {
+            match self.send_request(&url, &body).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    let is_retryable = Self::is_retryable_error(&e);
+                    
+                    if attempt < max_attempts && is_retryable {
+                        eprintln!(
+                            "⚠️  Request failed (attempt {}/{}): {}",
+                            attempt, max_attempts, e
+                        );
+                        eprintln!(
+                            "   Retrying in {} seconds...",
+                            self.config.retry_delay_secs
+                        );
+                        sleep(Duration::from_secs(self.config.retry_delay_secs)).await;
+                        last_error = Some(e);
+                    } else if !is_retryable {
+                        // Non-retryable error, return immediately
+                        return Err(e);
+                    } else {
+                        last_error = Some(e);
+                    }
+                }
+            }
+        }
+
+        // All retries exhausted
+        Err(ModelError::MaxRetriesExceeded(
+            self.config.max_retries,
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "Unknown error".to_string()),
+        ))
+    }
+
+    /// Check if an error is retryable (network errors, timeouts, etc.)
+    fn is_retryable_error(error: &ModelError) -> bool {
+        match error {
+            ModelError::RequestFailed(_) => true, // Network errors are retryable
+            ModelError::ApiError(msg) => {
+                // Retry on server errors (5xx) or rate limits (429)
+                msg.contains("500") || 
+                msg.contains("502") || 
+                msg.contains("503") || 
+                msg.contains("504") ||
+                msg.contains("429") ||
+                msg.to_lowercase().contains("timeout") ||
+                msg.to_lowercase().contains("rate limit")
+            }
+            ModelError::ParseError(_) => false, // Parse errors are not retryable
+            ModelError::MaxRetriesExceeded(_, _) => false,
+        }
+    }
+
+    /// Send a single request to the API.
+    async fn send_request(&self, url: &str, body: &Value) -> Result<ModelResponse, ModelError> {
         let response = self
             .client
-            .post(&url)
+            .post(url)
             .header("Authorization", format!("Bearer {}", self.config.api_key))
             .header("Content-Type", "application/json")
-            .json(&body)
+            .json(body)
             .send()
             .await?;
 

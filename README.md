@@ -122,6 +122,8 @@ async fn main() -> anyhow::Result<()> {
 | `model_name` | `autoglm-phone-9b` | Model name |
 | `max_tokens` | `3000` | Maximum tokens in response |
 | `temperature` | `0.0` | Sampling temperature |
+| `max_retries` | `3` | Maximum retry attempts for failed requests |
+| `retry_delay_secs` | `2` | Delay between retry attempts (seconds) |
 
 ### Agent Configuration
 
@@ -133,6 +135,20 @@ async fn main() -> anyhow::Result<()> {
 | `verbose` | `true` | Print detailed output |
 | `scale_x` | `1.61` | X coordinate scale factor |
 | `scale_y` | `1.61` | Y coordinate scale factor |
+
+### Retry Configuration
+
+The model client automatically retries failed requests for network errors, timeouts, and server errors (5xx, 429).
+
+**Environment Variables**:
+- `MODEL_MAX_RETRIES` - Maximum number of retry attempts (default: 3)
+- `MODEL_RETRY_DELAY` - Delay between retries in seconds (default: 2)
+
+**Example** (in `.env` file):
+```bash
+MODEL_MAX_RETRIES=5
+MODEL_RETRY_DELAY=3
+```
 
 ### Coordinate Scale Configuration
 

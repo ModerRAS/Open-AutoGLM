@@ -122,6 +122,8 @@ async fn main() -> anyhow::Result<()> {
 | `model_name` | `autoglm-phone-9b` | 模型名称 |
 | `max_tokens` | `3000` | 响应最大token数 |
 | `temperature` | `0.0` | 采样温度 |
+| `max_retries` | `3` | 请求失败时的最大重试次数 |
+| `retry_delay_secs` | `2` | 重试间隔时间（秒） |
 
 ### 代理配置
 
@@ -133,6 +135,20 @@ async fn main() -> anyhow::Result<()> {
 | `verbose` | `true` | 打印详细输出 |
 | `scale_x` | `1.61` | X坐标缩放因子 |
 | `scale_y` | `1.61` | Y坐标缩放因子 |
+
+### 请求重试配置
+
+模型客户端会自动重试失败的请求，包括网络错误、超时和服务器错误（5xx、429）。
+
+**环境变量**：
+- `MODEL_MAX_RETRIES` - 最大重试次数（默认：3）
+- `MODEL_RETRY_DELAY` - 重试间隔秒数（默认：2）
+
+**示例**（在 `.env` 文件中）：
+```bash
+MODEL_MAX_RETRIES=5
+MODEL_RETRY_DELAY=3
+```
 
 ### 坐标缩放配置
 
