@@ -3,6 +3,6 @@
 mod calibrator;
 
 pub use calibrator::{
-    CalibrationConfig, CalibrationResult, CoordinateCalibrator,
+    CalibrationConfig, CalibrationMode, CalibrationResult, CoordinateCalibrator,
     DEFAULT_CALIBRATION_POINTS,
 };

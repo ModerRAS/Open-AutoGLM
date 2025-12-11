@@ -183,6 +183,10 @@ let agent_config = AgentConfig::default()
 
 The phone agent includes a built-in calibration feature that automatically determines the optimal coordinate scale factors by generating test images and asking the LLM to identify marker positions.
 
+**Calibration Modes**:
+- **Simple Mode** (default): Uses colored markers at specific positions - fast and straightforward
+- **Complex Mode**: Simulates real phone UI layouts (comment sections with usernames, timestamps, content, buttons) - tests LLM's ability to locate elements in realistic scenarios
+
 **How it works**:
 1. Takes a screenshot from the connected device to detect actual screen dimensions
 2. Generates test images with visual markers at known pixel coordinates (matching screen size)
@@ -192,31 +196,45 @@ The phone agent includes a built-in calibration feature that automatically deter
 
 **CLI Usage**:
 ```bash
-# Run calibration only (outputs recommended scale factors)
+# Run simple calibration only (outputs recommended scale factors)
 cargo run --release -- --calibrate
+
+# Run complex calibration (simulates real UI layouts)
+cargo run --release -- --calibrate-complex
 
 # Enable calibration before each session
 ENABLE_CALIBRATION=true cargo run --release
+
+# Use complex mode via environment variable
+CALIBRATION_MODE=complex ENABLE_CALIBRATION=true cargo run --release
+
+# Adjust complex calibration rounds (default: 5)
+CALIBRATION_COMPLEX_ROUNDS=10 cargo run --release -- --calibrate-complex
 ```
 
 **Environment Variables**:
 - `ENABLE_CALIBRATION` - Set to `true` or `1` to enable calibration at startup
+- `CALIBRATION_MODE` - Set to `simple` (default) or `complex`
+- `CALIBRATION_COMPLEX_ROUNDS` - Number of test rounds for complex mode (default: 5)
 
 **As a Library**:
 ```rust
-use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::ModelClient;
 
 async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
     // Screen size is automatically detected from device screenshot
     let config = CalibrationConfig::default()
+        .with_mode(CalibrationMode::Complex)  // Use complex UI simulation
+        .with_complex_rounds(10)               // 10 calibration rounds
         .with_lang("cn")
-        .with_device_id("your-device-id");  // Optional
+        .with_device_id("your-device-id");    // Optional
     
     let calibrator = CoordinateCalibrator::new(config);
     let result = calibrator.calibrate(model_client).await;
     
     if result.success {
+        println!("Mode: {:?}", result.mode);
         println!("Screen: {}x{}", result.screen_width, result.screen_height);
         (result.scale_x, result.scale_y)
     } else {

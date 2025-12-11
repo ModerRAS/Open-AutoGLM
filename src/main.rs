@@ -3,7 +3,7 @@
 //! This is the main entry point for the phone-agent CLI tool.
 
 use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
-use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
 use std::env;
 use std::io::{self, BufRead, Write};
@@ -57,7 +57,28 @@ async fn main() -> anyhow::Result<()> {
     let enable_calibration = env::var("ENABLE_CALIBRATION")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
-    let calibration_only = args.iter().any(|arg| arg == "--calibrate");
+    let calibration_simple = args.iter().any(|arg| arg == "--calibrate");
+    let calibration_complex = args.iter().any(|arg| arg == "--calibrate-complex");
+    let calibration_only = calibration_simple || calibration_complex;
+    
+    // Determine calibration mode
+    let calibration_mode = if calibration_complex {
+        CalibrationMode::Complex
+    } else {
+        // Check environment variable for mode
+        let mode_env = env::var("CALIBRATION_MODE").unwrap_or_default();
+        if mode_env.to_lowercase() == "complex" {
+            CalibrationMode::Complex
+        } else {
+            CalibrationMode::Simple
+        }
+    };
+    
+    // Get complex calibration rounds from environment
+    let complex_rounds: usize = env::var("CALIBRATION_COMPLEX_ROUNDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
 
     // Build model config
     let model_config = ModelConfig::default()
@@ -86,17 +107,19 @@ async fn main() -> anyhow::Result<()> {
         println!("Device: {}", id);
     }
     if enable_calibration || calibration_only {
-        println!("Calibration: enabled");
+        println!("Calibration: enabled ({:?})", calibration_mode);
     }
     println!("================================================\n");
 
     // Run calibration if requested
     let (scale_x, scale_y) = if enable_calibration || calibration_only {
-        println!("🎯 Starting coordinate calibration...\n");
+        println!("🎯 Starting coordinate calibration ({:?} mode)...\n", calibration_mode);
         
         // Build calibration config - screen size will be auto-detected from device screenshot
         let mut calibration_config = CalibrationConfig::default()
-            .with_lang(&lang);
+            .with_mode(calibration_mode)
+            .with_lang(&lang)
+            .with_complex_rounds(complex_rounds);
         
         if let Some(ref id) = device_id_clone {
             calibration_config = calibration_config.with_device_id(id);
@@ -108,7 +131,8 @@ async fn main() -> anyhow::Result<()> {
         let result = calibrator.calibrate(&model_client).await;
         
         if result.success {
-            println!("\n🎯 Detected screen size: {}x{}", result.screen_width, result.screen_height);
+            println!("\n🎯 Calibration mode: {:?}", result.mode);
+            println!("🎯 Detected screen size: {}x{}", result.screen_width, result.screen_height);
             println!("🎯 Using calibrated scale factors: X={:.4}, Y={:.4}\n", result.scale_x, result.scale_y);
             (result.scale_x, result.scale_y)
         } else {

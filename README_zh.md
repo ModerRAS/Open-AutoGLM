@@ -183,6 +183,10 @@ let agent_config = AgentConfig::default()
 
 Phone Agent 内置坐标校准功能，可以通过生成带有标记的测试图片，让 LLM 自动识别坐标位置，从而计算出最佳的坐标缩放因子。
 
+**校准模式**：
+- **简单模式** (默认)：使用彩色标记在特定位置 - 快速直接
+- **复杂模式**：模拟真实手机 UI 布局（评论区，含用户名、时间、内容、按钮）- 测试 LLM 在真实场景中定位元素的能力
+
 **工作原理**：
 1. 从连接的设备截图以检测实际屏幕尺寸
 2. 生成带有可视标记的测试图片，标记位于已知像素坐标（匹配屏幕尺寸）
@@ -192,31 +196,45 @@ Phone Agent 内置坐标校准功能，可以通过生成带有标记的测试�
 
 **命令行用法**：
 ```bash
-# 仅运行校准（输出推荐的缩放因子）
+# 仅运行简单校准（输出推荐的缩放因子）
 cargo run --release -- --calibrate
+
+# 运行复杂校准（模拟真实UI布局）
+cargo run --release -- --calibrate-complex
 
 # 每次启动时自动校准
 ENABLE_CALIBRATION=true cargo run --release
+
+# 通过环境变量使用复杂模式
+CALIBRATION_MODE=complex ENABLE_CALIBRATION=true cargo run --release
+
+# 调整复杂校准轮数（默认：5）
+CALIBRATION_COMPLEX_ROUNDS=10 cargo run --release -- --calibrate-complex
 ```
 
 **环境变量**：
 - `ENABLE_CALIBRATION` - 设置为 `true` 或 `1` 启用启动时校准
+- `CALIBRATION_MODE` - 设置为 `simple`（默认）或 `complex`
+- `CALIBRATION_COMPLEX_ROUNDS` - 复杂模式的测试轮数（默认：5）
 
 **作为库使用**：
 ```rust
-use phone_agent::calibration::{CalibrationConfig, CoordinateCalibrator};
+use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::ModelClient;
 
 async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
     // 屏幕尺寸会自动从设备截图中检测
     let config = CalibrationConfig::default()
+        .with_mode(CalibrationMode::Complex)  // 使用复杂UI模拟
+        .with_complex_rounds(10)               // 10轮校准
         .with_lang("cn")
-        .with_device_id("your-device-id");  // 可选
+        .with_device_id("your-device-id");    // 可选
     
     let calibrator = CoordinateCalibrator::new(config);
     let result = calibrator.calibrate(model_client).await;
     
     if result.success {
+        println!("模式: {:?}", result.mode);
         println!("屏幕: {}x{}", result.screen_width, result.screen_height);
         (result.scale_x, result.scale_y)
     } else {
