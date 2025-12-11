@@ -34,16 +34,23 @@ pub struct AgentConfig {
     pub system_prompt: Option<String>,
     /// Whether to print verbose output.
     pub verbose: bool,
+    /// Scale factor for X coordinates (LLM output * scale = actual coordinate).
+    pub scale_x: f64,
+    /// Scale factor for Y coordinates (LLM output * scale = actual coordinate).
+    pub scale_y: f64,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
+        use crate::actions::DEFAULT_COORDINATE_SCALE;
         Self {
             max_steps: 100,
             device_id: None,
             lang: "cn".to_string(),
             system_prompt: None,
             verbose: true,
+            scale_x: DEFAULT_COORDINATE_SCALE,
+            scale_y: DEFAULT_COORDINATE_SCALE,
         }
     }
 }
@@ -70,6 +77,21 @@ impl AgentConfig {
     /// Create a new AgentConfig with verbose output disabled.
     pub fn quiet(mut self) -> Self {
         self.verbose = false;
+        self
+    }
+
+    /// Set the coordinate scale factors.
+    /// LLM output coordinates will be multiplied by these factors.
+    pub fn with_scale(mut self, scale_x: f64, scale_y: f64) -> Self {
+        self.scale_x = scale_x;
+        self.scale_y = scale_y;
+        self
+    }
+
+    /// Set both X and Y scale factors to the same value.
+    pub fn with_uniform_scale(mut self, scale: f64) -> Self {
+        self.scale_x = scale;
+        self.scale_y = scale;
         self
     }
 
@@ -149,10 +171,12 @@ impl PhoneAgent {
         confirmation_callback: Option<ConfirmationCallback>,
         takeover_callback: Option<TakeoverCallback>,
     ) -> Self {
-        let action_handler = ActionHandler::new(
+        let action_handler = ActionHandler::with_scale(
             agent_config.device_id.clone(),
             confirmation_callback,
             takeover_callback,
+            agent_config.scale_x,
+            agent_config.scale_y,
         );
 
         Self {

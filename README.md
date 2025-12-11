@@ -124,6 +124,37 @@ async fn main() -> anyhow::Result<()> {
 | `device_id` | `None` | ADB device ID (optional) |
 | `lang` | `cn` | Language for prompts and messages |
 | `verbose` | `true` | Print detailed output |
+| `scale_x` | `1.61` | X coordinate scale factor |
+| `scale_y` | `1.61` | Y coordinate scale factor |
+
+### Coordinate Scale Configuration
+
+The coordinate scale factors are used to adjust LLM output coordinates to actual screen coordinates. This is useful when the model outputs coordinates in a different scale than the actual screen pixels.
+
+**Formula**: `actual_coordinate = llm_output × scale_factor`
+
+**Environment Variables**:
+- `COORDINATE_SCALE` - Set both X and Y scale factors (takes precedence)
+- `COORDINATE_SCALE_X` - Set X scale factor only
+- `COORDINATE_SCALE_Y` - Set Y scale factor only
+
+**Example** (in `.env` file):
+```bash
+# Set uniform scale for both X and Y
+COORDINATE_SCALE=1.61
+
+# Or set different scales for X and Y
+COORDINATE_SCALE_X=1.61
+COORDINATE_SCALE_Y=1.61
+```
+
+**As a Library**:
+```rust
+let agent_config = AgentConfig::default()
+    .with_uniform_scale(1.61)  // Set both X and Y to 1.61
+    // or
+    .with_scale(1.61, 1.61);   // Set X=1.61, Y=1.61 separately
+```
 
 ## Project Structure
 

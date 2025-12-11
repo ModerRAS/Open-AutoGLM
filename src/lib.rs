@@ -48,5 +48,6 @@ pub mod agent;
 pub mod config;
 pub mod model;
 
+pub use actions::DEFAULT_COORDINATE_SCALE;
 pub use agent::{AgentConfig, PhoneAgent, StepResult};
 pub use model::{ModelClient, ModelConfig, ModelResponse};

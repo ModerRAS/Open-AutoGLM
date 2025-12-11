@@ -2,7 +2,7 @@
 //!
 //! This is the main entry point for the phone-agent CLI tool.
 
-use phone_agent::{AgentConfig, ModelConfig, PhoneAgent};
+use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
 use std::env;
 use std::io::{self, BufRead, Write};
 
@@ -23,6 +23,23 @@ async fn main() -> anyhow::Result<()> {
     let model_name = env::var("MODEL_NAME").unwrap_or_else(|_| "autoglm-phone-9b".to_string());
     let device_id = env::var("ADB_DEVICE_ID").ok();
     let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
+    
+    // Get coordinate scale factors from environment (default: 1.61)
+    let scale_x: f64 = env::var("COORDINATE_SCALE_X")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_COORDINATE_SCALE);
+    let scale_y: f64 = env::var("COORDINATE_SCALE_Y")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_COORDINATE_SCALE);
+    // Allow setting both X and Y with a single variable
+    let (scale_x, scale_y) = if let Ok(uniform_scale) = env::var("COORDINATE_SCALE") {
+        let scale: f64 = uniform_scale.parse().unwrap_or(DEFAULT_COORDINATE_SCALE);
+        (scale, scale)
+    } else {
+        (scale_x, scale_y)
+    };
 
     // Build model config
     let model_config = ModelConfig::default()
@@ -31,7 +48,9 @@ async fn main() -> anyhow::Result<()> {
         .with_model_name(&model_name);
 
     // Build agent config
-    let mut agent_config = AgentConfig::default().with_lang(&lang);
+    let mut agent_config = AgentConfig::default()
+        .with_lang(&lang)
+        .with_scale(scale_x, scale_y);
     if let Some(id) = device_id {
         agent_config = agent_config.with_device_id(id);
     }
@@ -40,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
     println!("================================================");
     println!("Model: {} @ {}", model_name, base_url);
     println!("Language: {}", lang);
+    println!("Coordinate Scale: X={:.2}, Y={:.2}", scale_x, scale_y);
     if let Some(ref id) = agent_config.device_id {
         println!("Device: {}", id);
     }
