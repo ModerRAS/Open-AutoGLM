@@ -3,9 +3,11 @@
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::actions::{parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback};
+use crate::actions::{parse_action, ActionHandler, ConfirmationCallback, CoordinateSystem, TakeoverCallback};
 use crate::adb::{get_current_app, get_screenshot};
-use crate::config::{get_messages, get_system_prompt, get_system_prompt_with_resolution};
+use crate::config::{
+    get_messages, get_system_prompt, get_system_prompt_relative, get_system_prompt_with_resolution,
+};
 use crate::model::{MessageBuilder, ModelClient, ModelConfig};
 
 /// Agent errors.
@@ -30,14 +32,18 @@ pub struct AgentConfig {
     pub device_id: Option<String>,
     /// Language code ("cn" for Chinese, "en" for English).
     pub lang: String,
-    /// Custom system prompt (if None, uses default based on lang).
+    /// Custom system prompt (if None, uses default based on lang and coordinate system).
     pub system_prompt: Option<String>,
     /// Whether to print verbose output.
     pub verbose: bool,
     /// Scale factor for X coordinates (LLM output * scale = actual coordinate).
+    /// Only used when coordinate_system is Absolute.
     pub scale_x: f64,
     /// Scale factor for Y coordinates (LLM output * scale = actual coordinate).
+    /// Only used when coordinate_system is Absolute.
     pub scale_y: f64,
+    /// Coordinate system mode (Relative 0-999 or Absolute pixel coordinates).
+    pub coordinate_system: CoordinateSystem,
 }
 
 impl Default for AgentConfig {
@@ -51,11 +57,27 @@ impl Default for AgentConfig {
             verbose: true,
             scale_x: DEFAULT_COORDINATE_SCALE,
             scale_y: DEFAULT_COORDINATE_SCALE,
+            coordinate_system: CoordinateSystem::Absolute,
         }
     }
 }
 
 impl AgentConfig {
+    /// Create a default config with relative coordinate system (0-999 range).
+    /// This is the original AutoGLM-Phone coordinate system.
+    pub fn relative() -> Self {
+        Self {
+            max_steps: 100,
+            device_id: None,
+            lang: "cn".to_string(),
+            system_prompt: None,
+            verbose: true,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            coordinate_system: CoordinateSystem::Relative,
+        }
+    }
+
     /// Create a new AgentConfig with custom device ID.
     pub fn with_device_id(mut self, device_id: impl Into<String>) -> Self {
         self.device_id = Some(device_id.into());
@@ -80,7 +102,7 @@ impl AgentConfig {
         self
     }
 
-    /// Set the coordinate scale factors.
+    /// Set the coordinate scale factors (only used for Absolute coordinate system).
     /// LLM output coordinates will be multiplied by these factors.
     pub fn with_scale(mut self, scale_x: f64, scale_y: f64) -> Self {
         self.scale_x = scale_x;
@@ -95,20 +117,49 @@ impl AgentConfig {
         self
     }
 
-    /// Get the system prompt (custom or default based on language).
+    /// Set the coordinate system mode.
+    pub fn with_coordinate_system(mut self, coordinate_system: CoordinateSystem) -> Self {
+        self.coordinate_system = coordinate_system;
+        self
+    }
+
+    /// Use relative coordinate system (0-999 range, original AutoGLM-Phone style).
+    pub fn with_relative_coordinates(mut self) -> Self {
+        self.coordinate_system = CoordinateSystem::Relative;
+        self.scale_x = 1.0;
+        self.scale_y = 1.0;
+        self
+    }
+
+    /// Use absolute coordinate system (pixel coordinates with optional scaling).
+    pub fn with_absolute_coordinates(mut self) -> Self {
+        use crate::actions::DEFAULT_COORDINATE_SCALE;
+        self.coordinate_system = CoordinateSystem::Absolute;
+        self.scale_x = DEFAULT_COORDINATE_SCALE;
+        self.scale_y = DEFAULT_COORDINATE_SCALE;
+        self
+    }
+
+    /// Get the system prompt (custom or default based on language and coordinate system).
     /// This version doesn't include screen resolution information.
     pub fn get_system_prompt(&self) -> String {
-        self.system_prompt
-            .clone()
-            .unwrap_or_else(|| get_system_prompt(&self.lang))
+        self.system_prompt.clone().unwrap_or_else(|| {
+            match self.coordinate_system {
+                CoordinateSystem::Relative => get_system_prompt_relative(&self.lang),
+                CoordinateSystem::Absolute => get_system_prompt(&self.lang),
+            }
+        })
     }
 
     /// Get the system prompt with screen resolution information.
     /// This is the preferred method when screen dimensions are known.
     pub fn get_system_prompt_with_resolution(&self, width: u32, height: u32) -> String {
-        self.system_prompt
-            .clone()
-            .unwrap_or_else(|| get_system_prompt_with_resolution(&self.lang, width, height))
+        self.system_prompt.clone().unwrap_or_else(|| {
+            match self.coordinate_system {
+                CoordinateSystem::Relative => get_system_prompt_relative(&self.lang),
+                CoordinateSystem::Absolute => get_system_prompt_with_resolution(&self.lang, width, height),
+            }
+        })
     }
 }
 
@@ -171,12 +222,13 @@ impl PhoneAgent {
         confirmation_callback: Option<ConfirmationCallback>,
         takeover_callback: Option<TakeoverCallback>,
     ) -> Self {
-        let action_handler = ActionHandler::with_scale(
+        let action_handler = ActionHandler::with_options(
             agent_config.device_id.clone(),
             confirmation_callback,
             takeover_callback,
             agent_config.scale_x,
             agent_config.scale_y,
+            agent_config.coordinate_system,
         );
 
         Self {

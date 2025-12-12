@@ -49,7 +49,7 @@ pub mod calibration;
 pub mod config;
 pub mod model;
 
-pub use actions::DEFAULT_COORDINATE_SCALE;
+pub use actions::{CoordinateSystem, DEFAULT_COORDINATE_SCALE, RELATIVE_COORDINATE_MAX};
 pub use agent::{AgentConfig, PhoneAgent, StepResult};
 pub use calibration::{
     CalibrationConfig, CalibrationMode, CalibrationResult, CoordinateCalibrator,

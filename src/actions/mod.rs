@@ -4,5 +4,5 @@ mod handler;
 
 pub use handler::{
     do_action, finish_action, parse_action, ActionHandler, ActionResult, ConfirmationCallback,
-    TakeoverCallback, DEFAULT_COORDINATE_SCALE,
+    CoordinateSystem, TakeoverCallback, DEFAULT_COORDINATE_SCALE, RELATIVE_COORDINATE_MAX,
 };

@@ -11,6 +11,18 @@ use crate::adb::{
     restore_keyboard, swipe, tap, type_text,
 };
 
+/// Coordinate system mode for interpreting LLM output coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum CoordinateSystem {
+    /// Relative coordinates: LLM outputs values in 0-999 range, mapped to actual screen size.
+    /// This is the original AutoGLM-Phone coordinate system.
+    Relative,
+    /// Absolute coordinates: LLM outputs actual pixel coordinates.
+    /// Coordinates may still be scaled by scale_x/scale_y factors.
+    #[default]
+    Absolute,
+}
+
 /// Action handler errors.
 #[derive(Error, Debug)]
 pub enum ActionError {
@@ -77,6 +89,9 @@ pub type TakeoverCallback = Box<dyn Fn(&str) + Send + Sync>;
 /// LLM coordinates will be multiplied by this factor before mapping to actual screen coordinates.
 pub const DEFAULT_COORDINATE_SCALE: f64 = 1.61;
 
+/// Maximum value for relative coordinates (0-999 range).
+pub const RELATIVE_COORDINATE_MAX: f64 = 1000.0;
+
 /// Handles execution of actions from AI model output.
 pub struct ActionHandler {
     device_id: Option<String>,
@@ -86,10 +101,12 @@ pub struct ActionHandler {
     scale_x: f64,
     /// Scale factor for Y coordinates (LLM output * scale = actual coordinate)
     scale_y: f64,
+    /// Coordinate system mode
+    coordinate_system: CoordinateSystem,
 }
 
 impl ActionHandler {
-    /// Create a new ActionHandler with default scale factors.
+    /// Create a new ActionHandler with default scale factors and absolute coordinate system.
     ///
     /// # Arguments
     /// * `device_id` - Optional ADB device ID for multi-device setups.
@@ -100,16 +117,17 @@ impl ActionHandler {
         confirmation_callback: Option<ConfirmationCallback>,
         takeover_callback: Option<TakeoverCallback>,
     ) -> Self {
-        Self::with_scale(
+        Self::with_options(
             device_id,
             confirmation_callback,
             takeover_callback,
             DEFAULT_COORDINATE_SCALE,
             DEFAULT_COORDINATE_SCALE,
+            CoordinateSystem::Absolute,
         )
     }
 
-    /// Create a new ActionHandler with custom scale factors.
+    /// Create a new ActionHandler with custom scale factors (for absolute coordinate system).
     ///
     /// # Arguments
     /// * `device_id` - Optional ADB device ID for multi-device setups.
@@ -124,6 +142,55 @@ impl ActionHandler {
         scale_x: f64,
         scale_y: f64,
     ) -> Self {
+        Self::with_options(
+            device_id,
+            confirmation_callback,
+            takeover_callback,
+            scale_x,
+            scale_y,
+            CoordinateSystem::Absolute,
+        )
+    }
+
+    /// Create a new ActionHandler for relative coordinate system (0-999 range).
+    /// This is the original AutoGLM-Phone coordinate system.
+    ///
+    /// # Arguments
+    /// * `device_id` - Optional ADB device ID for multi-device setups.
+    /// * `confirmation_callback` - Optional callback for sensitive action confirmation.
+    /// * `takeover_callback` - Optional callback for takeover requests (login, captcha).
+    pub fn with_relative_coordinates(
+        device_id: Option<String>,
+        confirmation_callback: Option<ConfirmationCallback>,
+        takeover_callback: Option<TakeoverCallback>,
+    ) -> Self {
+        Self::with_options(
+            device_id,
+            confirmation_callback,
+            takeover_callback,
+            1.0,
+            1.0,
+            CoordinateSystem::Relative,
+        )
+    }
+
+    /// Create a new ActionHandler with full configuration options.
+    ///
+    /// # Arguments
+    /// * `device_id` - Optional ADB device ID for multi-device setups.
+    /// * `confirmation_callback` - Optional callback for sensitive action confirmation.
+    /// * `takeover_callback` - Optional callback for takeover requests (login, captcha).
+    /// * `scale_x` - Scale factor for X coordinates.
+    /// * `scale_y` - Scale factor for Y coordinates.
+    /// * `coordinate_system` - Coordinate system mode (Relative or Absolute).
+    pub fn with_options(
+        device_id: Option<String>,
+        confirmation_callback: Option<ConfirmationCallback>,
+        takeover_callback: Option<TakeoverCallback>,
+        scale_x: f64,
+        scale_y: f64,
+        coordinate_system: CoordinateSystem,
+    ) -> Self {
         Self {
             device_id,
             confirmation_callback: confirmation_callback
@@ -131,6 +198,7 @@ impl ActionHandler {
             takeover_callback: takeover_callback.unwrap_or_else(|| Box::new(default_takeover)),
             scale_x,
             scale_y,
+            coordinate_system,
         }
     }
 
@@ -143,6 +211,16 @@ impl ActionHandler {
     /// Get the current coordinate scale factors.
     pub fn get_scale(&self) -> (f64, f64) {
         (self.scale_x, self.scale_y)
+    }
+
+    /// Set the coordinate system mode.
+    pub fn set_coordinate_system(&mut self, coordinate_system: CoordinateSystem) {
+        self.coordinate_system = coordinate_system;
+    }
+
+    /// Get the current coordinate system mode.
+    pub fn get_coordinate_system(&self) -> CoordinateSystem {
+        self.coordinate_system
     }
 
     /// Execute an action from the AI model.
@@ -207,10 +285,11 @@ impl ActionHandler {
         }
     }
 
-    /// Apply scale factor and validate coordinates are within screen bounds.
+    /// Convert and validate coordinates based on the current coordinate system.
     ///
-    /// LLM output coordinates are multiplied by scale factors before validation.
-    fn validate_absolute_coordinates(
+    /// For Relative mode: LLM outputs 0-999 range, converted to actual screen coordinates.
+    /// For Absolute mode: LLM outputs pixel coordinates, optionally scaled by scale factors.
+    fn convert_coordinates(
         &self,
         element: &[i64],
         screen_width: u32,
@@ -219,30 +298,55 @@ impl ActionHandler {
         let raw_x = element[0];
         let raw_y = element[1];
 
-        // Apply scale factors to LLM output coordinates
-        let scaled_x = (raw_x as f64 * self.scale_x).round() as i64;
-        let scaled_y = (raw_y as f64 * self.scale_y).round() as i64;
+        match self.coordinate_system {
+            CoordinateSystem::Relative => {
+                // Relative coordinates: 0-999 range mapped to screen size
+                if raw_x < 0 || raw_x >= RELATIVE_COORDINATE_MAX as i64 {
+                    return Err(format!(
+                        "Relative X coordinate {} is out of bounds. Valid range is [0, 999].",
+                        raw_x
+                    ));
+                }
+                if raw_y < 0 || raw_y >= RELATIVE_COORDINATE_MAX as i64 {
+                    return Err(format!(
+                        "Relative Y coordinate {} is out of bounds. Valid range is [0, 999].",
+                        raw_y
+                    ));
+                }
 
-        // Check if scaled coordinates are within valid screen range
-        if scaled_x < 0 || scaled_x >= screen_width as i64 {
-            return Err(format!(
-                "Scaled X coordinate {} (raw: {} × {:.2}) is out of bounds. Valid range is [0, {}). \
-                Please provide coordinates within the screen area.",
-                scaled_x, raw_x, self.scale_x, screen_width
-            ));
-        }
-        if scaled_y < 0 || scaled_y >= screen_height as i64 {
-            return Err(format!(
-                "Scaled Y coordinate {} (raw: {} × {:.2}) is out of bounds. Valid range is [0, {}). \
-                Please provide coordinates within the screen area.",
-                scaled_y, raw_y, self.scale_y, screen_height
-            ));
-        }
+                // Convert relative (0-999) to absolute pixel coordinates
+                let abs_x = (raw_x as f64 / RELATIVE_COORDINATE_MAX * screen_width as f64).round() as i32;
+                let abs_y = (raw_y as f64 / RELATIVE_COORDINATE_MAX * screen_height as f64).round() as i32;
 
-        Ok((scaled_x as i32, scaled_y as i32))
+                Ok((abs_x, abs_y))
+            }
+            CoordinateSystem::Absolute => {
+                // Absolute coordinates: apply scale factors
+                let scaled_x = (raw_x as f64 * self.scale_x).round() as i64;
+                let scaled_y = (raw_y as f64 * self.scale_y).round() as i64;
+
+                // Check if scaled coordinates are within valid screen range
+                if scaled_x < 0 || scaled_x >= screen_width as i64 {
+                    return Err(format!(
+                        "Scaled X coordinate {} (raw: {} × {:.2}) is out of bounds. Valid range is [0, {}). \
+                        Please provide coordinates within the screen area.",
+                        scaled_x, raw_x, self.scale_x, screen_width
+                    ));
+                }
+                if scaled_y < 0 || scaled_y >= screen_height as i64 {
+                    return Err(format!(
+                        "Scaled Y coordinate {} (raw: {} × {:.2}) is out of bounds. Valid range is [0, {}). \
+                        Please provide coordinates within the screen area.",
+                        scaled_y, raw_y, self.scale_y, screen_height
+                    ));
+                }
+
+                Ok((scaled_x as i32, scaled_y as i32))
+            }
+        }
     }
 
-    /// Validate absolute pixel coordinates with detailed error messages.
+    /// Validate and convert coordinates with detailed error messages.
     fn validate_coordinates(
         &self,
         coords: &[i64],
@@ -250,7 +354,7 @@ impl ActionHandler {
         screen_width: u32,
         screen_height: u32,
     ) -> Result<(i32, i32), ActionResult> {
-        match self.validate_absolute_coordinates(coords, screen_width, screen_height) {
+        match self.convert_coordinates(coords, screen_width, screen_height) {
             Ok((x, y)) => Ok((x, y)),
             Err(msg) => Err(ActionResult::failure(format!(
                 "Coordinate error for {}: {}",
@@ -805,31 +909,31 @@ mod tests {
 
     #[test]
     fn test_coordinate_bounds_check_valid() {
-        // Use scale factor of 1.0 for testing direct pixel mapping
+        // Use scale factor of 1.0 for testing direct pixel mapping (Absolute mode)
         let handler = ActionHandler::with_scale(None, None, None, 1.0, 1.0);
 
         // Valid absolute coordinates within screen bounds (no scaling)
-        let result = handler.validate_absolute_coordinates(&[500, 500], 1080, 1920);
+        let result = handler.convert_coordinates(&[500, 500], 1080, 1920);
         assert!(result.is_ok());
         let (x, y) = result.unwrap();
         assert_eq!(x, 500); // Direct pixel value
         assert_eq!(y, 500); // Direct pixel value
 
         // Edge cases - boundaries
-        let result = handler.validate_absolute_coordinates(&[0, 0], 1080, 1920);
+        let result = handler.convert_coordinates(&[0, 0], 1080, 1920);
         assert!(result.is_ok());
 
-        let result = handler.validate_absolute_coordinates(&[1079, 1919], 1080, 1920);
+        let result = handler.convert_coordinates(&[1079, 1919], 1080, 1920);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_coordinate_scaling() {
-        // Test with default scale factor (1.61)
+        // Test with default scale factor (1.61) in Absolute mode
         let handler = ActionHandler::new(None, None, None);
 
         // 300 * 1.61 = 483, 400 * 1.61 = 644
-        let result = handler.validate_absolute_coordinates(&[300, 400], 1080, 1920);
+        let result = handler.convert_coordinates(&[300, 400], 1080, 1920);
         assert!(result.is_ok());
         let (x, y) = result.unwrap();
         assert_eq!(x, 483); // 300 * 1.61 rounded
@@ -838,11 +942,11 @@ mod tests {
 
     #[test]
     fn test_custom_scale_factor() {
-        // Test with custom scale factor
+        // Test with custom scale factor in Absolute mode
         let handler = ActionHandler::with_scale(None, None, None, 2.0, 1.5);
 
         // 100 * 2.0 = 200, 200 * 1.5 = 300
-        let result = handler.validate_absolute_coordinates(&[100, 200], 1080, 1920);
+        let result = handler.convert_coordinates(&[100, 200], 1080, 1920);
         assert!(result.is_ok());
         let (x, y) = result.unwrap();
         assert_eq!(x, 200); // 100 * 2.0
@@ -851,34 +955,81 @@ mod tests {
 
     #[test]
     fn test_coordinate_bounds_check_invalid_x() {
-        // Use scale factor of 1.0 for testing bounds
+        // Use scale factor of 1.0 for testing bounds in Absolute mode
         let handler = ActionHandler::with_scale(None, None, None, 1.0, 1.0);
 
         // X coordinate out of bounds (negative)
-        let result = handler.validate_absolute_coordinates(&[-10, 500], 1080, 1920);
+        let result = handler.convert_coordinates(&[-10, 500], 1080, 1920);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("X coordinate"));
 
         // X coordinate out of bounds (>= screen width)
-        let result = handler.validate_absolute_coordinates(&[1080, 500], 1080, 1920);
+        let result = handler.convert_coordinates(&[1080, 500], 1080, 1920);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("X coordinate"));
     }
 
     #[test]
     fn test_coordinate_bounds_check_invalid_y() {
-        // Use scale factor of 1.0 for testing bounds
+        // Use scale factor of 1.0 for testing bounds in Absolute mode
         let handler = ActionHandler::with_scale(None, None, None, 1.0, 1.0);
 
         // Y coordinate out of bounds (negative)
-        let result = handler.validate_absolute_coordinates(&[500, -10], 1080, 1920);
+        let result = handler.convert_coordinates(&[500, -10], 1080, 1920);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Y coordinate"));
 
         // Y coordinate out of bounds (>= screen height)
-        let result = handler.validate_absolute_coordinates(&[500, 1920], 1080, 1920);
+        let result = handler.convert_coordinates(&[500, 1920], 1080, 1920);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Y coordinate"));
+    }
+
+    #[test]
+    fn test_relative_coordinates() {
+        // Test relative coordinate system (0-999 range)
+        let handler = ActionHandler::with_relative_coordinates(None, None, None);
+
+        // Center of screen: (500, 500) -> maps to center of actual screen
+        let result = handler.convert_coordinates(&[500, 500], 1080, 1920);
+        assert!(result.is_ok());
+        let (x, y) = result.unwrap();
+        assert_eq!(x, 540);  // 500/1000 * 1080 = 540
+        assert_eq!(y, 960);  // 500/1000 * 1920 = 960
+
+        // Top-left corner: (0, 0)
+        let result = handler.convert_coordinates(&[0, 0], 1080, 1920);
+        assert!(result.is_ok());
+        let (x, y) = result.unwrap();
+        assert_eq!(x, 0);
+        assert_eq!(y, 0);
+
+        // Near bottom-right: (999, 999)
+        let result = handler.convert_coordinates(&[999, 999], 1080, 1920);
+        assert!(result.is_ok());
+        let (x, y) = result.unwrap();
+        assert_eq!(x, 1079); // 999/1000 * 1080 ≈ 1079
+        assert_eq!(y, 1918); // 999/1000 * 1920 ≈ 1918
+    }
+
+    #[test]
+    fn test_relative_coordinates_invalid() {
+        // Test invalid relative coordinates (out of 0-999 range)
+        let handler = ActionHandler::with_relative_coordinates(None, None, None);
+
+        // X out of range
+        let result = handler.convert_coordinates(&[1000, 500], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Relative X coordinate"));
+
+        // Y out of range
+        let result = handler.convert_coordinates(&[500, 1000], 1080, 1920);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Relative Y coordinate"));
+
+        // Negative
+        let result = handler.convert_coordinates(&[-1, 500], 1080, 1920);
+        assert!(result.is_err());
     }
 
     #[test]
