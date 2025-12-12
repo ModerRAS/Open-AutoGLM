@@ -1,6 +1,7 @@
 //! Phone Agent - AI-powered Android phone automation
 //!
-//! This is the main entry point for the phone-agent CLI tool.
+//! This is the CLI entry point for the phone-agent tool.
+//! Run with: cargo run --bin phone-agent
 
 use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};

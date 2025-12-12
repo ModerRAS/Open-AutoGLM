@@ -76,7 +76,7 @@ impl CoordSystemOption {
         }
     }
 
-    fn to_coordinate_system(&self) -> CoordinateSystem {
+    fn as_coordinate_system(self) -> CoordinateSystem {
         match self {
             CoordSystemOption::Relative => CoordinateSystem::Relative,
             CoordSystemOption::Absolute => CoordinateSystem::Absolute,
@@ -115,7 +115,7 @@ impl CalibModeOption {
         }
     }
 
-    fn to_calibration_mode(&self) -> CalibrationMode {
+    fn as_calibration_mode(self) -> CalibrationMode {
         match self {
             CalibModeOption::Simple => CalibrationMode::Simple,
             CalibModeOption::Complex => CalibrationMode::Complex,
@@ -914,7 +914,7 @@ async fn run_agent_task(settings: AppSettings, task: String) -> Result<String, S
         .with_retry_delay(settings.retry_delay);
 
     // Build agent config
-    let coord_system = CoordSystemOption::from_str(&settings.coordinate_system).to_coordinate_system();
+    let coord_system = CoordSystemOption::from_str(&settings.coordinate_system).as_coordinate_system();
     let mut agent_config = AgentConfig::default()
         .with_lang(&settings.lang)
         .with_coordinate_system(coord_system)
@@ -955,7 +955,7 @@ async fn run_calibration(settings: AppSettings) -> Result<(f64, f64), String> {
         .with_max_retries(settings.max_retries)
         .with_retry_delay(settings.retry_delay);
 
-    let calib_mode = CalibModeOption::from_str(&settings.calibration_mode).to_calibration_mode();
+    let calib_mode = CalibModeOption::from_str(&settings.calibration_mode).as_calibration_mode();
     
     let mut calibration_config = CalibrationConfig::default()
         .with_mode(calib_mode)

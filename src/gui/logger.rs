@@ -222,6 +222,6 @@ impl Logger {
     pub fn read_log_file(path: &PathBuf) -> Result<Vec<String>, String> {
         let file = File::open(path).map_err(|e| format!("Failed to open log file: {}", e))?;
         let reader = BufReader::new(file);
-        Ok(reader.lines().filter_map(|l| l.ok()).collect())
+        Ok(reader.lines().map_while(Result::ok).collect())
     }
 }

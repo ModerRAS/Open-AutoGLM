@@ -59,7 +59,11 @@ directories = "5"
 
 [[bin]]
 name = "phone-agent"
-path = "src/main.rs"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "phone-agent-gui"
+path = "src/bin/gui.rs"
 
 [[example]]
 name = "basic_usage"
@@ -68,7 +72,3 @@ path = "examples/basic_usage.rs"
 [[example]]
 name = "demo_thinking"
 path = "examples/demo_thinking.rs"
-
-[[bin]]
-name = "phone-agent-gui"
-path = "src/bin/gui.rs"
