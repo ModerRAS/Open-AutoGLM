@@ -52,6 +52,13 @@ phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
 
 ### 命令行
 
+#### 启动方式（入口）
+
+本仓库提供两个可执行入口：
+
+- **命令行版本（CLI）**：`phone-agent`
+- **图形界面（GUI, Iced）**：`phone-agent-gui`
+
 ```bash
 # 方式1：使用 .env 文件（推荐）
 # 在项目根目录创建 .env 文件
@@ -88,10 +95,17 @@ $env:ADB_DEVICE_ID="your-device-id"
 $env:COORDINATE_SYSTEM="relative"
 
 # 运行任务
-cargo run --release -- "打开微信发送消息给张三"
+cargo run --release --bin phone-agent -- "打开微信发送消息给张三"
 
 # 或进入交互模式
-cargo run --release
+cargo run --release --bin phone-agent
+```
+
+### 图形界面（GUI，Iced）
+
+```bash
+# 启动图形界面
+cargo run --release --bin phone-agent-gui
 ```
 
 ### 作为库
@@ -301,7 +315,9 @@ async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
 ```
 src/
 ├── lib.rs              # 库入口
-├── main.rs             # CLI入口
+├── bin/
+│   ├── cli.rs           # CLI入口（phone-agent）
+│   └── gui.rs           # GUI入口（phone-agent-gui）
 ├── agent/              # 核心代理逻辑
 │   └── phone_agent.rs  # PhoneAgent实现
 ├── actions/            # 动作处理
@@ -317,6 +333,10 @@ src/
 │   ├── apps.rs         # 应用包名映射
 │   ├── i18n.rs         # 国际化
 │   └── prompts.rs      # 系统提示词
+├── gui/                # GUI 模块（Iced）
+│   ├── app.rs           # GUI 主界面
+│   ├── logger.rs        # GUI 日志存储与展示
+│   └── settings.rs      # GUI 配置保存/加载
 └── model/              # 模型客户端
     └── client.rs       # OpenAI兼容API客户端
 ```

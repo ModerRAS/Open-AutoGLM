@@ -52,6 +52,13 @@ phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
 
 ### CLI
 
+#### Run (entrypoint)
+
+This repo provides two binaries:
+
+- **CLI**: `phone-agent`
+- **GUI**: `phone-agent-gui`
+
 ```bash
 # Option 1: Use a .env file (recommended)
 # Create a .env file in the project root
@@ -88,10 +95,17 @@ $env:ADB_DEVICE_ID="your-device-id"
 $env:COORDINATE_SYSTEM="relative"
 
 # Run with a task
-cargo run --release -- "打开微信发送消息给张三"
+cargo run --release --bin phone-agent -- "打开微信发送消息给张三"
 
 # Or run in interactive mode
-cargo run --release
+cargo run --release --bin phone-agent
+```
+
+### GUI (Iced)
+
+```bash
+# Run the GUI
+cargo run --release --bin phone-agent-gui
 ```
 
 ### As a Library

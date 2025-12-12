@@ -1,0 +1,139 @@
+name: Nightly Release
+
+on:
+  schedule:
+    # 03:00 UTC every day
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NIGHTLY_TAG: nightly
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          # Windows
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          # macOS
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: |
+          cross build --release --target ${{ matrix.target }} --bin phone-agent
+          cross build --release --target ${{ matrix.target }} --bin phone-agent-gui
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin phone-agent
+          cargo build --release --target ${{ matrix.target }} --bin phone-agent-gui
+
+      - name: Prepare artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/phone-agent dist/
+          cp target/${{ matrix.target }}/release/phone-agent-gui dist/
+          cp README.md LICENSE NOTICE dist/
+          cp .env.example dist/
+          cd dist
+          tar -czvf ../phone-agent-nightly-${{ matrix.target }}.tar.gz *
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/phone-agent.exe" dist/
+          Copy-Item "target/${{ matrix.target }}/release/phone-agent-gui.exe" dist/
+          Copy-Item README.md, LICENSE, NOTICE, .env.example dist/
+          Compress-Archive -Path dist/* -DestinationPath "phone-agent-nightly-${{ matrix.target }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.target }}
+          path: |
+            phone-agent-nightly-${{ matrix.target }}.tar.gz
+            phone-agent-nightly-${{ matrix.target }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish Nightly Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-files/ \;
+          ls -la release-files/
+
+      - name: Create/Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.NIGHTLY_TAG }}
+          name: Nightly (${{ env.NIGHTLY_TAG }})
+          body: |
+            这是自动生成的 nightly 构建（每日更新，可能不稳定）。
+
+            - 产物包含两个二进制：`phone-agent`（CLI）与 `phone-agent-gui`（GUI）
+            - 对应提交：`${{ github.sha }}`
+          draft: false
+          prerelease: true
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
