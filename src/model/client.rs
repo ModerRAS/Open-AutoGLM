@@ -52,7 +52,7 @@ impl Default for ModelConfig {
             base_url: "http://localhost:8000/v1".to_string(),
             api_key: "EMPTY".to_string(),
             model_name: "autoglm-phone-9b".to_string(),
-            max_tokens: 8192,
+            max_tokens: 3000,
             temperature: 0.0,
             top_p: 0.85,
             frequency_penalty: 0.2,
