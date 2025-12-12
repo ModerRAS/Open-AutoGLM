@@ -61,11 +61,13 @@ MODEL_API_KEY=EMPTY
 MODEL_NAME=autoglm-phone-9b
 AGENT_LANG=cn
 ADB_DEVICE_ID=your-device-id
-# 坐标缩放因子（LLM输出 × 缩放 = 实际坐标）
-COORDINATE_SCALE=1.61
-# 或者分别设置X和Y：
-# COORDINATE_SCALE_X=1.61
-# COORDINATE_SCALE_Y=1.61
+
+# 坐标系统："relative"（0-999相对坐标）或 "absolute"（像素坐标）
+# autoglm-phone 模型使用 "relative"，其他模型使用 "absolute"
+COORDINATE_SYSTEM=relative
+
+# 坐标缩放因子（仅 absolute 模式使用）
+# COORDINATE_SCALE=1.61
 EOF
 
 # 方式2：设置环境变量
@@ -75,7 +77,7 @@ export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # 或 "en"
 export ADB_DEVICE_ID="your-device-id"  # 单设备时可选
-export COORDINATE_SCALE="1.61"  # 坐标缩放因子
+export COORDINATE_SYSTEM="relative"  # 或 "absolute"
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -83,7 +85,7 @@ $env:MODEL_API_KEY="EMPTY"
 $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
-$env:COORDINATE_SCALE="1.61"
+$env:COORDINATE_SYSTEM="relative"
 
 # 运行任务
 cargo run --release -- "打开微信发送消息给张三"
@@ -95,16 +97,21 @@ cargo run --release
 ### 作为库
 
 ```rust
-use phone_agent::{AgentConfig, ModelConfig, PhoneAgent};
+use phone_agent::{AgentConfig, CoordinateSystem, ModelConfig, PhoneAgent};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let model_config = ModelConfig::default()
         .with_base_url("http://localhost:8000/v1");
     
+    // 使用相对坐标（0-999）- 适用于 autoglm-phone 模型
     let agent_config = AgentConfig::default()
         .with_lang("cn")
+        .with_coordinate_system(CoordinateSystem::Relative)
         .with_max_steps(50);
+    
+    // 或使用简写：
+    // let agent_config = AgentConfig::relative().with_lang("cn");
     
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
     
@@ -137,8 +144,47 @@ async fn main() -> anyhow::Result<()> {
 | `device_id` | `None` | ADB设备ID（可选） |
 | `lang` | `cn` | 提示和消息的语言 |
 | `verbose` | `true` | 打印详细输出 |
-| `scale_x` | `1.61` | X坐标缩放因子 |
-| `scale_y` | `1.61` | Y坐标缩放因子 |
+| `coordinate_system` | `Absolute` | 坐标系统模式 |
+| `scale_x` | `1.61` | X坐标缩放因子（仅 absolute 模式） |
+| `scale_y` | `1.61` | Y坐标缩放因子（仅 absolute 模式） |
+
+### 坐标系统配置
+
+代理支持两种坐标系统：
+
+| 模式 | 范围 | 描述 | 适用场景 |
+|------|------|------|----------|
+| **Relative** | 0-999 | 坐标被归一化到 0-999 范围，自动映射到实际屏幕尺寸 | `autoglm-phone` 模型 |
+| **Absolute** | 像素 | 坐标为实际屏幕像素，可选缩放 | 其他视觉模型 |
+
+**环境变量**：
+- `COORDINATE_SYSTEM` - 设置为 `relative`（或 `rel`）或 `absolute`（或 `abs`，默认）
+
+**示例**（在 `.env` 文件中）：
+```bash
+# autoglm-phone 模型（使用 0-999 相对坐标）
+COORDINATE_SYSTEM=relative
+
+# 其他模型（使用像素坐标）
+COORDINATE_SYSTEM=absolute
+COORDINATE_SCALE=1.61
+```
+
+**作为库使用**：
+```rust
+use phone_agent::{AgentConfig, CoordinateSystem};
+
+// 相对坐标（0-999）- 适用于 autoglm-phone 模型
+let config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Relative);
+// 或使用简写：
+let config = AgentConfig::relative();
+
+// 绝对坐标（像素）- 适用于其他模型
+let config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Absolute)
+    .with_scale(1.61, 1.61);
+```
 
 ### 请求重试配置
 
@@ -154,9 +200,9 @@ MODEL_MAX_RETRIES=5
 MODEL_RETRY_DELAY=3
 ```
 
-### 坐标缩放配置
+### 坐标缩放配置（仅 Absolute 模式）
 
-坐标缩放因子用于将LLM输出的坐标调整为实际屏幕坐标。当模型输出的坐标与实际屏幕像素不一致时，可以使用此功能进行校正。
+坐标缩放因子用于将LLM输出的坐标调整为实际屏幕坐标。仅当 `COORDINATE_SYSTEM=absolute` 时使用。
 
 **计算公式**：`实际坐标 = LLM输出 × 缩放因子`
 
@@ -167,6 +213,8 @@ MODEL_RETRY_DELAY=3
 
 **示例**（在 `.env` 文件中）：
 ```bash
+COORDINATE_SYSTEM=absolute
+
 # 设置统一缩放因子
 COORDINATE_SCALE=1.61
 
@@ -178,6 +226,7 @@ COORDINATE_SCALE_Y=1.61
 **作为库使用**：
 ```rust
 let agent_config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Absolute)
     .with_uniform_scale(1.61)  // X和Y使用相同值
     // 或者
     .with_scale(1.61, 1.61);   // 分别设置X和Y

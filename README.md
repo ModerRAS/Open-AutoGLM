@@ -61,11 +61,13 @@ MODEL_API_KEY=EMPTY
 MODEL_NAME=autoglm-phone-9b
 AGENT_LANG=cn
 ADB_DEVICE_ID=your-device-id
-# Coordinate scale factor (LLM output × scale = actual coordinate)
-COORDINATE_SCALE=1.61
-# Or set X and Y separately:
-# COORDINATE_SCALE_X=1.61
-# COORDINATE_SCALE_Y=1.61
+
+# Coordinate system: "relative" (0-999) or "absolute" (pixels)
+# Use "relative" for autoglm-phone model, "absolute" for other models
+COORDINATE_SYSTEM=relative
+
+# Coordinate scale factor (only for absolute mode)
+# COORDINATE_SCALE=1.61
 EOF
 
 # Option 2: Set environment variables
@@ -75,7 +77,7 @@ export MODEL_API_KEY="EMPTY"
 export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # or "en"
 export ADB_DEVICE_ID="your-device-id"  # optional for single device
-export COORDINATE_SCALE="1.61"  # coordinate scale factor
+export COORDINATE_SYSTEM="relative"  # or "absolute"
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -83,7 +85,7 @@ $env:MODEL_API_KEY="EMPTY"
 $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
-$env:COORDINATE_SCALE="1.61"
+$env:COORDINATE_SYSTEM="relative"
 
 # Run with a task
 cargo run --release -- "打开微信发送消息给张三"
@@ -95,16 +97,21 @@ cargo run --release
 ### As a Library
 
 ```rust
-use phone_agent::{AgentConfig, ModelConfig, PhoneAgent};
+use phone_agent::{AgentConfig, CoordinateSystem, ModelConfig, PhoneAgent};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let model_config = ModelConfig::default()
         .with_base_url("http://localhost:8000/v1");
     
+    // Use relative coordinates (0-999) for autoglm-phone model
     let agent_config = AgentConfig::default()
         .with_lang("cn")
+        .with_coordinate_system(CoordinateSystem::Relative)
         .with_max_steps(50);
+    
+    // Or use the shorthand:
+    // let agent_config = AgentConfig::relative().with_lang("cn");
     
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
     
@@ -137,8 +144,47 @@ async fn main() -> anyhow::Result<()> {
 | `device_id` | `None` | ADB device ID (optional) |
 | `lang` | `cn` | Language for prompts and messages |
 | `verbose` | `true` | Print detailed output |
-| `scale_x` | `1.61` | X coordinate scale factor |
-| `scale_y` | `1.61` | Y coordinate scale factor |
+| `coordinate_system` | `Absolute` | Coordinate system mode |
+| `scale_x` | `1.61` | X coordinate scale factor (absolute mode only) |
+| `scale_y` | `1.61` | Y coordinate scale factor (absolute mode only) |
+
+### Coordinate System Configuration
+
+The agent supports two coordinate systems:
+
+| Mode | Range | Description | Use Case |
+|------|-------|-------------|----------|
+| **Relative** | 0-999 | Coordinates are normalized to 0-999 range, automatically mapped to actual screen size | `autoglm-phone` model |
+| **Absolute** | Pixels | Coordinates are actual screen pixels, optionally scaled | Other vision models |
+
+**Environment Variable**:
+- `COORDINATE_SYSTEM` - Set to `relative` (or `rel`) or `absolute` (or `abs`, default)
+
+**Example** (in `.env` file):
+```bash
+# For autoglm-phone model (uses 0-999 relative coordinates)
+COORDINATE_SYSTEM=relative
+
+# For other models (uses pixel coordinates)
+COORDINATE_SYSTEM=absolute
+COORDINATE_SCALE=1.61
+```
+
+**As a Library**:
+```rust
+use phone_agent::{AgentConfig, CoordinateSystem};
+
+// Relative coordinates (0-999) - for autoglm-phone model
+let config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Relative);
+// Or use shorthand:
+let config = AgentConfig::relative();
+
+// Absolute coordinates (pixels) - for other models
+let config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Absolute)
+    .with_scale(1.61, 1.61);
+```
 
 ### Retry Configuration
 
@@ -154,9 +200,9 @@ MODEL_MAX_RETRIES=5
 MODEL_RETRY_DELAY=3
 ```
 
-### Coordinate Scale Configuration
+### Coordinate Scale Configuration (Absolute Mode Only)
 
-The coordinate scale factors are used to adjust LLM output coordinates to actual screen coordinates. This is useful when the model outputs coordinates in a different scale than the actual screen pixels.
+The coordinate scale factors are used to adjust LLM output coordinates to actual screen coordinates. This is only used when `COORDINATE_SYSTEM=absolute`.
 
 **Formula**: `actual_coordinate = llm_output × scale_factor`
 
@@ -167,6 +213,8 @@ The coordinate scale factors are used to adjust LLM output coordinates to actual
 
 **Example** (in `.env` file):
 ```bash
+COORDINATE_SYSTEM=absolute
+
 # Set uniform scale for both X and Y
 COORDINATE_SCALE=1.61
 
@@ -178,6 +226,7 @@ COORDINATE_SCALE_Y=1.61
 **As a Library**:
 ```rust
 let agent_config = AgentConfig::default()
+    .with_coordinate_system(CoordinateSystem::Absolute)
     .with_uniform_scale(1.61)  // Set both X and Y to 1.61
     // or
     .with_scale(1.61, 1.61);   // Set X=1.61, Y=1.61 separately

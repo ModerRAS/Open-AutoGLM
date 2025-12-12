@@ -4,7 +4,7 @@
 
 use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
-use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
+use phone_agent::{AgentConfig, CoordinateSystem, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
 use std::env;
 use std::io::{self, BufRead, Write};
 
@@ -27,6 +27,18 @@ async fn main() -> anyhow::Result<()> {
     let device_id = env::var("ADB_DEVICE_ID").ok();
     let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
 
+    // Get coordinate system from environment (default: absolute)
+    // "relative" or "rel" for relative coordinates (0-999 range, original AutoGLM-Phone style)
+    // "absolute" or "abs" for absolute pixel coordinates (default)
+    let coordinate_system = match env::var("COORDINATE_SYSTEM")
+        .unwrap_or_else(|_| "absolute".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "relative" | "rel" => CoordinateSystem::Relative,
+        _ => CoordinateSystem::Absolute,
+    };
+
     // Get retry configuration from environment
     let max_retries: u32 = env::var("MODEL_MAX_RETRIES")
         .ok()
@@ -37,18 +49,23 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_RETRY_DELAY_SECS);
 
-    // Get coordinate scale factors from environment (default: 1.61)
+    // Get coordinate scale factors from environment (only used for absolute mode)
+    // Default is 1.0 for relative mode, 1.61 for absolute mode
+    let default_scale = match coordinate_system {
+        CoordinateSystem::Relative => 1.0,
+        CoordinateSystem::Absolute => DEFAULT_COORDINATE_SCALE,
+    };
     let scale_x: f64 = env::var("COORDINATE_SCALE_X")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_COORDINATE_SCALE);
+        .unwrap_or(default_scale);
     let scale_y: f64 = env::var("COORDINATE_SCALE_Y")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_COORDINATE_SCALE);
+        .unwrap_or(default_scale);
     // Allow setting both X and Y with a single variable
     let (scale_x, scale_y) = if let Ok(uniform_scale) = env::var("COORDINATE_SCALE") {
-        let scale: f64 = uniform_scale.parse().unwrap_or(DEFAULT_COORDINATE_SCALE);
+        let scale: f64 = uniform_scale.parse().unwrap_or(default_scale);
         (scale, scale)
     } else {
         (scale_x, scale_y)
@@ -89,20 +106,29 @@ async fn main() -> anyhow::Result<()> {
         .with_max_retries(max_retries)
         .with_retry_delay(retry_delay);
 
-    // Build agent config
+    // Build agent config with coordinate system
     let mut agent_config = AgentConfig::default()
         .with_lang(&lang)
+        .with_coordinate_system(coordinate_system)
         .with_scale(scale_x, scale_y);
     let device_id_clone = device_id.clone();
     if let Some(id) = device_id {
         agent_config = agent_config.with_device_id(id);
     }
 
+    let coord_system_name = match coordinate_system {
+        CoordinateSystem::Relative => "Relative (0-999)",
+        CoordinateSystem::Absolute => "Absolute (pixels)",
+    };
+
     println!("🤖 Phone Agent - AI-powered Android Automation");
     println!("================================================");
     println!("Model: {} @ {}", model_name, base_url);
     println!("Language: {}", lang);
-    println!("Coordinate Scale: X={:.2}, Y={:.2}", scale_x, scale_y);
+    println!("Coordinate System: {}", coord_system_name);
+    if coordinate_system == CoordinateSystem::Absolute {
+        println!("Coordinate Scale: X={:.2}, Y={:.2}", scale_x, scale_y);
+    }
     println!(
         "Retry: max {} attempts, {}s delay",
         max_retries, retry_delay
