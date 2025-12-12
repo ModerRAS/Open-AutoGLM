@@ -15,7 +15,7 @@ use super::connection::get_adb_prefix;
 ///
 /// # Note
 /// Requires ADB Keyboard to be installed on the device.
-/// See: https://github.com/nicnocquee/AdbKeyboard
+/// See: <https://github.com/nicnocquee/AdbKeyboard>
 pub fn type_text(text: &str, device_id: Option<&str>) {
     let prefix = get_adb_prefix(device_id);
     let encoded_text = STANDARD.encode(text.as_bytes());

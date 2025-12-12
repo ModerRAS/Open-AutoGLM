@@ -19,18 +19,13 @@ use crate::adb::get_screenshot;
 use crate::model::{MessageBuilder, ModelClient};
 
 /// Calibration mode
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum CalibrationMode {
     /// Simple mode: colored markers at specific positions
+    #[default]
     Simple,
     /// Complex mode: simulates real UI with comment-like layouts
     Complex,
-}
-
-impl Default for CalibrationMode {
-    fn default() -> Self {
-        Self::Simple
-    }
 }
 
 /// Default calibration points as (x_ratio, y_ratio) where 0.0-1.0 represents screen percentage
