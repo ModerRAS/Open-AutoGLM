@@ -47,6 +47,7 @@ pub mod adb;
 pub mod agent;
 pub mod calibration;
 pub mod config;
+pub mod gui;
 pub mod model;
 
 pub use actions::{CoordinateSystem, DEFAULT_COORDINATE_SCALE, RELATIVE_COORDINATE_MAX};

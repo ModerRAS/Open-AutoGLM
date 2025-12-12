@@ -36,7 +36,7 @@ ab_glyph = "0.2"
 regex = "1"
 
 # Date/time
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Lazy initialization
 once_cell = "1"
@@ -51,6 +51,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # UUID generation
 uuid = { version = "1", features = ["v4"] }
 
+# GUI
+iced = { version = "0.13", features = ["tokio"] }
+
+# Config persistence
+directories = "5"
+
 [[bin]]
 name = "phone-agent"
 path = "src/main.rs"
@@ -62,3 +68,7 @@ path = "examples/basic_usage.rs"
 [[example]]
 name = "demo_thinking"
 path = "examples/demo_thinking.rs"
+
+[[bin]]
+name = "phone-agent-gui"
+path = "src/bin/gui.rs"
