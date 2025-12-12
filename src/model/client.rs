@@ -429,23 +429,46 @@ impl ModelClient {
     }
 
     /// Parse the model response into thinking and action parts.
+    ///
+    /// Handles both standard format with tags and untagged format:
+    /// - Standard: `<think>thinking</think><answer>action</answer>`
+    /// - Untagged: `thinking text... do(action="...")`
     fn parse_response(content: &str) -> (String, String) {
-        if !content.contains("<answer>") {
-            return (String::new(), content.to_string());
+        // Standard format with <answer> tag
+        if content.contains("<answer>") {
+            let parts: Vec<&str> = content.splitn(2, "<answer>").collect();
+            let thinking = parts[0]
+                .replace("<think>", "")
+                .replace("</think>", "")
+                .trim()
+                .to_string();
+            let action = parts
+                .get(1)
+                .map(|s| s.replace("</answer>", "").trim().to_string())
+                .unwrap_or_default();
+
+            return (thinking, action);
         }
 
-        let parts: Vec<&str> = content.splitn(2, "<answer>").collect();
-        let thinking = parts[0]
-            .replace("<think>", "")
-            .replace("</think>", "")
-            .trim()
-            .to_string();
-        let action = parts
-            .get(1)
-            .map(|s| s.replace("</answer>", "").trim().to_string())
-            .unwrap_or_default();
+        // Untagged format: try to extract do(...) or finish(...) from the content
+        // and treat everything before it as thinking
+        let content_trimmed = content.trim();
 
-        (thinking, action)
+        // Find do() or finish() pattern
+        if let Some(do_pos) = content_trimmed.find("do(") {
+            let thinking = content_trimmed[..do_pos].trim().to_string();
+            let action = content_trimmed[do_pos..].trim().to_string();
+            return (thinking, action);
+        }
+
+        if let Some(finish_pos) = content_trimmed.find("finish(") {
+            let thinking = content_trimmed[..finish_pos].trim().to_string();
+            let action = content_trimmed[finish_pos..].trim().to_string();
+            return (thinking, action);
+        }
+
+        // No recognizable pattern, return as-is (action only)
+        (String::new(), content.to_string())
     }
 }
 
@@ -552,6 +575,32 @@ mod tests {
         let (thinking, action) = ModelClient::parse_response(content);
         assert_eq!(thinking, "");
         assert_eq!(action, "some raw content");
+    }
+
+    #[test]
+    fn test_parse_response_untagged_do() {
+        let content = r#"用户想要我帮他刷小红书，具体要求是：
+1. 刷十几个帖子
+2. 看帖子的内容和评论
+
+首先启动小红书。
+do(action="Launch", app="小红书")"#;
+        let (thinking, action) = ModelClient::parse_response(content);
+        assert!(thinking.contains("刷小红书"));
+        assert!(thinking.contains("首先启动小红书"));
+        assert_eq!(action, r#"do(action="Launch", app="小红书")"#);
+    }
+
+    #[test]
+    fn test_parse_response_untagged_finish() {
+        let content = r#"任务已完成，总结如下：
+1. 浏览了15个帖子
+2. 内容主要是美食和旅游
+
+finish(message="已完成浏览")"#;
+        let (thinking, action) = ModelClient::parse_response(content);
+        assert!(thinking.contains("任务已完成"));
+        assert_eq!(action, r#"finish(message="已完成浏览")"#);
     }
 
     #[test]
