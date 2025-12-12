@@ -493,23 +493,82 @@ fn default_takeover(message: &str) {
 ///
 /// # Returns
 /// Parsed action as JSON Value.
+///
+/// # Notes
+/// The parser will search for `do(...)` or `finish(...)` patterns anywhere
+/// in the response, allowing models to include thinking/explanation text
+/// before the actual action call.
 pub fn parse_action(response: &str) -> Result<Value, ActionError> {
     let response = response.trim();
 
-    // Try to parse as a do() action
-    if response.starts_with("do(") {
-        return parse_do_action(response);
+    // Try to find and extract a do() action anywhere in the response
+    if let Some(do_start) = response.find("do(") {
+        // Find the matching closing parenthesis
+        if let Some(action_str) = extract_balanced_parens(&response[do_start..], "do(") {
+            return parse_do_action(&action_str);
+        }
     }
 
-    // Try to parse as a finish() action
-    if response.starts_with("finish(") {
-        return parse_finish_action(response);
+    // Try to find and extract a finish() action anywhere in the response
+    if let Some(finish_start) = response.find("finish(") {
+        if let Some(action_str) = extract_balanced_parens(&response[finish_start..], "finish(") {
+            return parse_finish_action(&action_str);
+        }
     }
 
     Err(ActionError::ParseError(format!(
         "Failed to parse action: {}",
         response
     )))
+}
+
+/// Extract a balanced parentheses expression starting with the given prefix.
+/// Returns the full expression including prefix and closing paren.
+fn extract_balanced_parens(text: &str, prefix: &str) -> Option<String> {
+    if !text.starts_with(prefix) {
+        return None;
+    }
+
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut string_char = '"';
+    let mut escape_next = false;
+
+    for (i, c) in text.char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        if c == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+
+        if in_string {
+            if c == string_char {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match c {
+            '"' | '\'' => {
+                in_string = true;
+                string_char = c;
+            }
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(text[..=i].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 /// Parse a do() action string into a JSON Value.
@@ -857,5 +916,50 @@ mod tests {
         assert!(!result.success);
         assert!(result.message.is_some());
         assert!(result.message.unwrap().contains("out of bounds"));
+    }
+
+    #[test]
+    fn test_parse_do_action_with_preceding_text() {
+        // Model output with thinking/explanation before the action
+        let response = r#"用户想要我帮他刷小红书，具体要求是：
+1. 刷十几个帖子
+2. 看帖子的内容和评论
+
+首先启动小红书。
+do(action="Launch", app="小红书")"#;
+        let result = parse_action(response).unwrap();
+        assert_eq!(result["_metadata"], "do");
+        assert_eq!(result["action"], "Launch");
+        assert_eq!(result["app"], "小红书");
+    }
+
+    #[test]
+    fn test_parse_finish_action_with_preceding_text() {
+        // Model output with thinking before finish
+        let response = r#"任务已完成，总结如下：
+1. 浏览了15个帖子
+2. 内容主要是美食和旅游
+
+finish(message="已完成浏览，共看了15个帖子")"#;
+        let result = parse_action(response).unwrap();
+        assert_eq!(result["_metadata"], "finish");
+        assert_eq!(result["message"], "已完成浏览，共看了15个帖子");
+    }
+
+    #[test]
+    fn test_parse_action_with_nested_parens() {
+        // Action with nested parentheses in strings
+        let response = r#"do(action="Tap", element=[100, 200], description="点击按钮(确定)")"#;
+        let result = parse_action(response).unwrap();
+        assert_eq!(result["_metadata"], "do");
+        assert_eq!(result["action"], "Tap");
+    }
+
+    #[test]
+    fn test_extract_balanced_parens() {
+        let text = r#"do(action="Test", value="hello") some trailing text"#;
+        let result = extract_balanced_parens(text, "do(");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), r#"do(action="Test", value="hello")"#);
     }
 }
