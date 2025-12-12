@@ -14,7 +14,8 @@ categories = ["development-tools", "automation"]
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client for model API
-reqwest = { version = "0.12", features = ["json"] }
+# Use rustls to avoid OpenSSL toolchain issues during cross-compilation (e.g. nightly builds).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
