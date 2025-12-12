@@ -159,16 +159,13 @@ impl ModelClient {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     let is_retryable = Self::is_retryable_error(&e);
-                    
+
                     if attempt < max_attempts && is_retryable {
                         eprintln!(
                             "⚠️  Request failed (attempt {}/{}): {}",
                             attempt, max_attempts, e
                         );
-                        eprintln!(
-                            "   Retrying in {} seconds...",
-                            self.config.retry_delay_secs
-                        );
+                        eprintln!("   Retrying in {} seconds...", self.config.retry_delay_secs);
                         sleep(Duration::from_secs(self.config.retry_delay_secs)).await;
                         last_error = Some(e);
                     } else if !is_retryable {
@@ -196,13 +193,13 @@ impl ModelClient {
             ModelError::RequestFailed(_) => true, // Network errors are retryable
             ModelError::ApiError(msg) => {
                 // Retry on server errors (5xx) or rate limits (429)
-                msg.contains("500") || 
-                msg.contains("502") || 
-                msg.contains("503") || 
-                msg.contains("504") ||
-                msg.contains("429") ||
-                msg.to_lowercase().contains("timeout") ||
-                msg.to_lowercase().contains("rate limit")
+                msg.contains("500")
+                    || msg.contains("502")
+                    || msg.contains("503")
+                    || msg.contains("504")
+                    || msg.contains("429")
+                    || msg.to_lowercase().contains("timeout")
+                    || msg.to_lowercase().contains("rate limit")
             }
             ModelError::ParseError(_) => false, // Parse errors are not retryable
             ModelError::MaxRetriesExceeded(_, _) => false,
@@ -231,22 +228,23 @@ impl ModelClient {
 
         // Get the raw response text first for debugging
         let response_text = response.text().await?;
-        
+
         // Check if this is a streaming response (multiple JSON objects concatenated)
         // Streaming responses have format: {"...chunk1"}{"...chunk2"}...
-        let json_value = if response_text.contains("}{") || response_text.contains("chat.completion.chunk") {
-            // Handle streaming response - parse all chunks and combine content
-            self.parse_streaming_response(&response_text)?
-        } else {
-            // Regular JSON response
-            serde_json::from_str(&response_text).map_err(|e| {
-                ModelError::ParseError(format!(
-                    "Failed to parse JSON: {}. Response: {}",
-                    e,
-                    Self::truncate_for_error(&response_text)
-                ))
-            })?
-        };
+        let json_value =
+            if response_text.contains("}{") || response_text.contains("chat.completion.chunk") {
+                // Handle streaming response - parse all chunks and combine content
+                self.parse_streaming_response(&response_text)?
+            } else {
+                // Regular JSON response
+                serde_json::from_str(&response_text).map_err(|e| {
+                    ModelError::ParseError(format!(
+                        "Failed to parse JSON: {}. Response: {}",
+                        e,
+                        Self::truncate_for_error(&response_text)
+                    ))
+                })?
+            };
 
         // Extract the content - try multiple possible paths
         let raw_content = self.extract_content(&json_value).ok_or_else(|| {
@@ -277,17 +275,19 @@ impl ModelClient {
     /// Parse streaming response (multiple JSON chunks concatenated)
     fn parse_streaming_response(&self, response_text: &str) -> Result<Value, ModelError> {
         let mut combined_content = String::new();
-        
+
         // Simple approach: split by }{ and reconstruct valid JSON objects
         let chunks: Vec<String> = if response_text.contains("}{") {
             let fixed = response_text.replace("}{", "}\n{");
-            fixed.lines()
+            fixed
+                .lines()
                 .filter(|s| !s.trim().is_empty())
                 .map(|s| s.trim().to_string())
                 .collect()
         } else {
             // Maybe newline separated
-            response_text.lines()
+            response_text
+                .lines()
                 .filter(|s| !s.trim().is_empty())
                 .map(|s| s.trim().to_string())
                 .collect()
@@ -297,7 +297,7 @@ impl ModelClient {
             if chunk_str.is_empty() || chunk_str == "[DONE]" {
                 continue;
             }
-            
+
             // Remove "data: " prefix if present (SSE format)
             let json_str = chunk_str.strip_prefix("data: ").unwrap_or(chunk_str);
             if json_str.is_empty() || json_str == "[DONE]" {
@@ -502,15 +502,13 @@ impl MessageBuilder {
 
     /// Remove image content from a message to save context space.
     pub fn remove_images_from_message(message: &mut Value) {
-        if let Some(content) = message.get_mut("content") {
-            if let Value::Array(arr) = content {
-                arr.retain(|item| {
-                    item.get("type")
-                        .and_then(|t| t.as_str())
-                        .map(|t| t == "text")
-                        .unwrap_or(false)
-                });
-            }
+        if let Some(Value::Array(arr)) = message.get_mut("content") {
+            arr.retain(|item| {
+                item.get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t == "text")
+                    .unwrap_or(false)
+            });
         }
     }
 

@@ -17,7 +17,7 @@ use super::connection::get_adb_prefix;
 /// The app name if recognized, otherwise "System Home".
 pub fn get_current_app(device_id: Option<&str>) -> String {
     let prefix = get_adb_prefix(device_id);
-    
+
     let output = Command::new(&prefix[0])
         .args(&prefix[1..])
         .args(["shell", "dumpsys", "window"])

@@ -1,5 +1,9 @@
 # Open-AutoGLM (Rust)
 
+[![CI](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/ci.yml/badge.svg)](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/ci.yml)
+[![Release](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/release.yml/badge.svg)](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/release.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 AI驱动的Android手机自动化代理 - Rust实现
 
 [English](README.md)

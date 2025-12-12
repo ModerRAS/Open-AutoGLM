@@ -9,6 +9,7 @@ use thiserror::Error;
 use super::connection::get_adb_prefix;
 
 /// Screenshot errors.
+#[allow(dead_code)]
 #[derive(Error, Debug)]
 pub enum ScreenshotError {
     #[error("Failed to capture screenshot: {0}")]
@@ -75,7 +76,10 @@ pub fn get_screenshot(device_id: Option<&str>) -> Screenshot {
         Ok(output) => {
             // Check for errors in stderr
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("Status: -1") || stderr.contains("Failed") || stderr.contains("error") {
+            if stderr.contains("Status: -1")
+                || stderr.contains("Failed")
+                || stderr.contains("error")
+            {
                 tracing::warn!("Screenshot may have failed (sensitive screen): {}", stderr);
                 return create_fallback_screenshot(true);
             }
@@ -89,7 +93,10 @@ pub fn get_screenshot(device_id: Option<&str>) -> Screenshot {
 
             // Verify PNG magic bytes
             if &png_data[0..8] != b"\x89PNG\r\n\x1a\n" {
-                tracing::error!("Invalid PNG header, got: {:?}", &png_data[0..8.min(png_data.len())]);
+                tracing::error!(
+                    "Invalid PNG header, got: {:?}",
+                    &png_data[0..8.min(png_data.len())]
+                );
                 return create_fallback_screenshot(false);
             }
 

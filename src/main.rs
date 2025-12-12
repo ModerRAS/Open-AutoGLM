@@ -2,9 +2,9 @@
 //!
 //! This is the main entry point for the phone-agent CLI tool.
 
-use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
 use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
+use phone_agent::{AgentConfig, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
 use std::env;
 use std::io::{self, BufRead, Write};
 
@@ -20,12 +20,13 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     // Get configuration from environment or use defaults
-    let base_url = env::var("MODEL_BASE_URL").unwrap_or_else(|_| "http://localhost:8000/v1".to_string());
+    let base_url =
+        env::var("MODEL_BASE_URL").unwrap_or_else(|_| "http://localhost:8000/v1".to_string());
     let api_key = env::var("MODEL_API_KEY").unwrap_or_else(|_| "EMPTY".to_string());
     let model_name = env::var("MODEL_NAME").unwrap_or_else(|_| "autoglm-phone-9b".to_string());
     let device_id = env::var("ADB_DEVICE_ID").ok();
     let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
-    
+
     // Get retry configuration from environment
     let max_retries: u32 = env::var("MODEL_MAX_RETRIES")
         .ok()
@@ -35,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_RETRY_DELAY_SECS);
-    
+
     // Get coordinate scale factors from environment (default: 1.61)
     let scale_x: f64 = env::var("COORDINATE_SCALE_X")
         .ok()
@@ -60,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let calibration_simple = args.iter().any(|arg| arg == "--calibrate");
     let calibration_complex = args.iter().any(|arg| arg == "--calibrate-complex");
     let calibration_only = calibration_simple || calibration_complex;
-    
+
     // Determine calibration mode
     let calibration_mode = if calibration_complex {
         CalibrationMode::Complex
@@ -73,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
             CalibrationMode::Simple
         }
     };
-    
+
     // Get complex calibration rounds from environment
     let complex_rounds: usize = env::var("CALIBRATION_COMPLEX_ROUNDS")
         .ok()
@@ -102,7 +103,10 @@ async fn main() -> anyhow::Result<()> {
     println!("Model: {} @ {}", model_name, base_url);
     println!("Language: {}", lang);
     println!("Coordinate Scale: X={:.2}, Y={:.2}", scale_x, scale_y);
-    println!("Retry: max {} attempts, {}s delay", max_retries, retry_delay);
+    println!(
+        "Retry: max {} attempts, {}s delay",
+        max_retries, retry_delay
+    );
     if let Some(ref id) = agent_config.device_id {
         println!("Device: {}", id);
     }
@@ -113,31 +117,43 @@ async fn main() -> anyhow::Result<()> {
 
     // Run calibration if requested
     let (scale_x, scale_y) = if enable_calibration || calibration_only {
-        println!("🎯 Starting coordinate calibration ({:?} mode)...\n", calibration_mode);
-        
+        println!(
+            "🎯 Starting coordinate calibration ({:?} mode)...\n",
+            calibration_mode
+        );
+
         // Build calibration config - screen size will be auto-detected from device screenshot
         let mut calibration_config = CalibrationConfig::default()
             .with_mode(calibration_mode)
             .with_lang(&lang)
             .with_complex_rounds(complex_rounds);
-        
+
         if let Some(ref id) = device_id_clone {
             calibration_config = calibration_config.with_device_id(id);
         }
-        
+
         let calibrator = CoordinateCalibrator::new(calibration_config);
         let model_client = ModelClient::new(model_config.clone());
-        
+
         let result = calibrator.calibrate(&model_client).await;
-        
+
         if result.success {
             println!("\n🎯 Calibration mode: {:?}", result.mode);
-            println!("🎯 Detected screen size: {}x{}", result.screen_width, result.screen_height);
-            println!("🎯 Using calibrated scale factors: X={:.4}, Y={:.4}\n", result.scale_x, result.scale_y);
+            println!(
+                "🎯 Detected screen size: {}x{}",
+                result.screen_width, result.screen_height
+            );
+            println!(
+                "🎯 Using calibrated scale factors: X={:.4}, Y={:.4}\n",
+                result.scale_x, result.scale_y
+            );
             (result.scale_x, result.scale_y)
         } else {
             println!("\n⚠️ Calibration failed: {:?}", result.error);
-            println!("   Using default scale factors: X={:.4}, Y={:.4}\n", scale_x, scale_y);
+            println!(
+                "   Using default scale factors: X={:.4}, Y={:.4}\n",
+                scale_x, scale_y
+            );
             (scale_x, scale_y)
         }
     } else {
@@ -165,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
     if args.len() > 1 {
         let task = args[1..].join(" ");
         println!("📝 Task: {}\n", task);
-        
+
         match agent.run(&task).await {
             Ok(result) => {
                 println!("\n✅ Result: {}", result);

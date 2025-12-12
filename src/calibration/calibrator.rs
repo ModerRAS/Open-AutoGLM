@@ -8,11 +8,11 @@
 //! - **Simple mode**: Uses colored markers at specific positions
 //! - **Complex mode**: Simulates real UI layouts (comment lists, etc.)
 
+use ab_glyph::{FontRef, PxScale};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_hollow_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
-use ab_glyph::{FontRef, PxScale};
 use std::io::Cursor;
 
 use crate::adb::get_screenshot;
@@ -140,7 +140,8 @@ impl MockComment {
             MockComment {
                 username: "Charlie".to_string(),
                 time: "2 hours ago".to_string(),
-                content: "This tutorial is very clear, even beginners can understand it!".to_string(),
+                content: "This tutorial is very clear, even beginners can understand it!"
+                    .to_string(),
                 likes: 89,
                 has_reply_button: true,
             },
@@ -277,22 +278,22 @@ impl CoordinateCalibrator {
     /// Get screen dimensions by taking a screenshot from the device.
     fn get_screen_dimensions(&self) -> Result<(u32, u32), String> {
         println!("📱 Taking screenshot to detect screen dimensions...");
-        
+
         let screenshot = get_screenshot(self.config.device_id.as_deref());
-        
+
         if screenshot.is_sensitive {
             return Err("Could not capture screenshot (sensitive screen)".to_string());
         }
-        
+
         let width = screenshot.width;
         let height = screenshot.height;
-        
+
         if width == 0 || height == 0 {
             return Err("Invalid screen dimensions".to_string());
         }
-        
+
         println!("   Detected screen size: {}x{}", width, height);
-        
+
         Ok((width, height))
     }
 
@@ -316,10 +317,12 @@ impl CoordinateCalibrator {
 
         match self.config.mode {
             CalibrationMode::Simple => {
-                self.calibrate_simple(model_client, screen_width, screen_height).await
+                self.calibrate_simple(model_client, screen_width, screen_height)
+                    .await
             }
             CalibrationMode::Complex => {
-                self.calibrate_complex(model_client, screen_width, screen_height).await
+                self.calibrate_complex(model_client, screen_width, screen_height)
+                    .await
             }
         }
     }
@@ -332,9 +335,9 @@ impl CoordinateCalibrator {
         screen_height: u32,
     ) -> CalibrationResult {
         println!("\n🎯 Running SIMPLE calibration mode...\n");
-        
+
         let marker_size = (screen_width as f64 * self.config.marker_size_ratio) as u32;
-        
+
         let mut point_results = Vec::new();
         let mut total_ratio_x = 0.0;
         let mut total_ratio_y = 0.0;
@@ -353,14 +356,24 @@ impl CoordinateCalibrator {
             );
 
             let image_base64 = self.generate_simple_calibration_image(
-                expected_x, expected_y, i + 1,
-                screen_width, screen_height, marker_size
+                expected_x,
+                expected_y,
+                i + 1,
+                screen_width,
+                screen_height,
+                marker_size,
             );
 
-            match self.ask_llm_for_simple_position(
-                model_client, &image_base64, i + 1,
-                screen_width, screen_height
-            ).await {
+            match self
+                .ask_llm_for_simple_position(
+                    model_client,
+                    &image_base64,
+                    i + 1,
+                    screen_width,
+                    screen_height,
+                )
+                .await
+            {
                 Ok((reported_x, reported_y)) => {
                     let ratio_x = if reported_x != 0 {
                         expected_x as f64 / reported_x as f64
@@ -387,7 +400,12 @@ impl CoordinateCalibrator {
                     }
 
                     point_results.push(PointCalibrationResult {
-                        description: format!("Point {} ({:.0}%, {:.0}%)", i + 1, x_ratio * 100.0, y_ratio * 100.0),
+                        description: format!(
+                            "Point {} ({:.0}%, {:.0}%)",
+                            i + 1,
+                            x_ratio * 100.0,
+                            y_ratio * 100.0
+                        ),
                         expected_x,
                         expected_y,
                         reported_x,
@@ -411,7 +429,14 @@ impl CoordinateCalibrator {
             }
         }
 
-        self.build_result(point_results, total_ratio_x, total_ratio_y, valid_points, screen_width, screen_height)
+        self.build_result(
+            point_results,
+            total_ratio_x,
+            total_ratio_y,
+            valid_points,
+            screen_width,
+            screen_height,
+        )
     }
 
     /// Complex calibration with simulated UI layouts
@@ -422,7 +447,7 @@ impl CoordinateCalibrator {
         screen_height: u32,
     ) -> CalibrationResult {
         println!("\n🎯 Running COMPLEX calibration mode (comment list simulation)...\n");
-        
+
         let mut point_results = Vec::new();
         let mut total_ratio_x = 0.0;
         let mut total_ratio_y = 0.0;
@@ -439,7 +464,10 @@ impl CoordinateCalibrator {
 
             // Generate complex UI image and get a random target
             let (image_base64, target) = self.generate_complex_calibration_image(
-                screen_width, screen_height, &comments, round
+                screen_width,
+                screen_height,
+                &comments,
+                round,
             );
 
             println!(
@@ -447,10 +475,16 @@ impl CoordinateCalibrator {
                 target.element_type, target.description, target.x, target.y
             );
 
-            match self.ask_llm_for_complex_position(
-                model_client, &image_base64, &target,
-                screen_width, screen_height
-            ).await {
+            match self
+                .ask_llm_for_complex_position(
+                    model_client,
+                    &image_base64,
+                    &target,
+                    screen_width,
+                    screen_height,
+                )
+                .await
+            {
                 Ok((reported_x, reported_y)) => {
                     let ratio_x = if reported_x != 0 {
                         target.x as f64 / reported_x as f64
@@ -489,7 +523,10 @@ impl CoordinateCalibrator {
                 Err(e) => {
                     println!("   ❌ Failed: {}", e);
                     point_results.push(PointCalibrationResult {
-                        description: format!("{}: {} (failed)", target.element_type, target.description),
+                        description: format!(
+                            "{}: {} (failed)",
+                            target.element_type, target.description
+                        ),
                         expected_x: target.x,
                         expected_y: target.y,
                         reported_x: 0,
@@ -501,7 +538,14 @@ impl CoordinateCalibrator {
             }
         }
 
-        self.build_result(point_results, total_ratio_x, total_ratio_y, valid_points, screen_width, screen_height)
+        self.build_result(
+            point_results,
+            total_ratio_x,
+            total_ratio_y,
+            valid_points,
+            screen_width,
+            screen_height,
+        )
     }
 
     /// Build calibration result from collected data
@@ -534,7 +578,10 @@ impl CoordinateCalibrator {
         println!("   Mode: {:?}", self.config.mode);
         println!("   Screen size: {}x{}", screen_width, screen_height);
         println!("   Valid points: {}/{}", valid_points, point_results.len());
-        println!("   Calculated scale factors: X={:.4}, Y={:.4}", scale_x, scale_y);
+        println!(
+            "   Calculated scale factors: X={:.4}, Y={:.4}",
+            scale_x, scale_y
+        );
 
         CalibrationResult {
             scale_x,
@@ -594,12 +641,14 @@ impl CoordinateCalibrator {
         let cross_thickness = 4;
         draw_filled_rect_mut(
             &mut img,
-            Rect::at(x - cross_thickness as i32 / 2, marker_y).of_size(cross_thickness, marker_size),
+            Rect::at(x - cross_thickness as i32 / 2, marker_y)
+                .of_size(cross_thickness, marker_size),
             Rgb([255u8, 255u8, 0u8]),
         );
         draw_filled_rect_mut(
             &mut img,
-            Rect::at(marker_x, y - cross_thickness as i32 / 2).of_size(marker_size, cross_thickness),
+            Rect::at(marker_x, y - cross_thickness as i32 / 2)
+                .of_size(marker_size, cross_thickness),
             Rgb([255u8, 255u8, 0u8]),
         );
 
@@ -616,7 +665,11 @@ impl CoordinateCalibrator {
         let indicator_x_start = 50;
         for i in 0..point_num {
             let dot_x = indicator_x_start + (i as i32 * 30);
-            draw_filled_rect_mut(&mut img, Rect::at(dot_x, indicator_y).of_size(20, 20), Rgb([0u8, 255u8, 0u8]));
+            draw_filled_rect_mut(
+                &mut img,
+                Rect::at(dot_x, indicator_y).of_size(20, 20),
+                Rgb([0u8, 255u8, 0u8]),
+            );
         }
 
         let mut buffer = Cursor::new(Vec::new());
@@ -649,11 +702,27 @@ impl CoordinateCalibrator {
         let font = FontRef::try_from_slice(font_data).ok();
 
         // Draw header bar
-        draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(width, 120), Rgb([245u8, 245u8, 245u8]));
-        
+        draw_filled_rect_mut(
+            &mut img,
+            Rect::at(0, 0).of_size(width, 120),
+            Rgb([245u8, 245u8, 245u8]),
+        );
+
         if let Some(ref f) = font {
-            let title = if self.config.lang == "cn" { "评论区" } else { "Comments" };
-            draw_text_mut(&mut img, Rgb([33u8, 33u8, 33u8]), padding, 40, PxScale::from(font_size_username * 1.2), f, title);
+            let title = if self.config.lang == "cn" {
+                "评论区"
+            } else {
+                "Comments"
+            };
+            draw_text_mut(
+                &mut img,
+                Rgb([33u8, 33u8, 33u8]),
+                padding,
+                40,
+                PxScale::from(font_size_username * 1.2),
+                f,
+                title,
+            );
         }
 
         // Store all clickable targets
@@ -661,13 +730,16 @@ impl CoordinateCalibrator {
 
         // Draw comments
         let mut y_offset = 140;
-        
+
         for (idx, comment) in comments.iter().take(6).enumerate() {
             // Comment background (alternating)
             if idx % 2 == 0 {
                 draw_filled_rect_mut(
                     &mut img,
-                    Rect::at(0, y_offset).of_size(width, avatar_size + comment_spacing as u32 * 2 + line_height as u32 * 3),
+                    Rect::at(0, y_offset).of_size(
+                        width,
+                        avatar_size + comment_spacing as u32 * 2 + line_height as u32 * 3,
+                    ),
                     Rgb([250u8, 250u8, 250u8]),
                 );
             }
@@ -677,7 +749,7 @@ impl CoordinateCalibrator {
             let avatar_y = y_offset + comment_spacing;
             let avatar_center_x = avatar_x + avatar_size as i32 / 2;
             let avatar_center_y = avatar_y + avatar_size as i32 / 2;
-            
+
             // Draw avatar as colored square
             let avatar_colors = [
                 Rgb([66u8, 133u8, 244u8]),
@@ -695,7 +767,11 @@ impl CoordinateCalibrator {
 
             targets.push(ComplexTarget {
                 description: comment.username.clone(),
-                element_type: if self.config.lang == "cn" { "头像".to_string() } else { "Avatar".to_string() },
+                element_type: if self.config.lang == "cn" {
+                    "头像".to_string()
+                } else {
+                    "Avatar".to_string()
+                },
                 x: avatar_center_x,
                 y: avatar_center_y,
             });
@@ -706,40 +782,69 @@ impl CoordinateCalibrator {
             if let Some(ref f) = font {
                 // Username
                 draw_text_mut(
-                    &mut img, Rgb([33u8, 33u8, 33u8]), text_x, text_y,
-                    PxScale::from(font_size_username), f, &comment.username
+                    &mut img,
+                    Rgb([33u8, 33u8, 33u8]),
+                    text_x,
+                    text_y,
+                    PxScale::from(font_size_username),
+                    f,
+                    &comment.username,
                 );
-                
-                let username_center_x = text_x + (comment.username.chars().count() as i32 * font_size_username as i32 / 3);
+
+                let username_center_x = text_x
+                    + (comment.username.chars().count() as i32 * font_size_username as i32 / 3);
                 targets.push(ComplexTarget {
                     description: comment.username.clone(),
-                    element_type: if self.config.lang == "cn" { "用户名".to_string() } else { "Username".to_string() },
+                    element_type: if self.config.lang == "cn" {
+                        "用户名".to_string()
+                    } else {
+                        "Username".to_string()
+                    },
                     x: username_center_x,
                     y: text_y + font_size_username as i32 / 2,
                 });
 
                 // Time
-                let time_x = width as i32 - padding - (comment.time.chars().count() as i32 * font_size_time as i32 / 2);
+                let time_x = width as i32
+                    - padding
+                    - (comment.time.chars().count() as i32 * font_size_time as i32 / 2);
                 draw_text_mut(
-                    &mut img, Rgb([150u8, 150u8, 150u8]), time_x, text_y,
-                    PxScale::from(font_size_time), f, &comment.time
+                    &mut img,
+                    Rgb([150u8, 150u8, 150u8]),
+                    time_x,
+                    text_y,
+                    PxScale::from(font_size_time),
+                    f,
+                    &comment.time,
                 );
 
                 text_y += line_height + 10;
 
                 // Content
                 draw_text_mut(
-                    &mut img, Rgb([66u8, 66u8, 66u8]), text_x, text_y,
-                    PxScale::from(font_size_content), f, &comment.content
+                    &mut img,
+                    Rgb([66u8, 66u8, 66u8]),
+                    text_x,
+                    text_y,
+                    PxScale::from(font_size_content),
+                    f,
+                    &comment.content,
                 );
-                
+
                 targets.push(ComplexTarget {
                     description: if comment.content.chars().count() > 10 {
-                        format!("{}...", comment.content.chars().take(10).collect::<String>())
+                        format!(
+                            "{}...",
+                            comment.content.chars().take(10).collect::<String>()
+                        )
                     } else {
                         comment.content.clone()
                     },
-                    element_type: if self.config.lang == "cn" { "评论内容".to_string() } else { "Comment".to_string() },
+                    element_type: if self.config.lang == "cn" {
+                        "评论内容".to_string()
+                    } else {
+                        "Comment".to_string()
+                    },
                     x: text_x + 100,
                     y: text_y + font_size_content as i32 / 2,
                 });
@@ -749,30 +854,52 @@ impl CoordinateCalibrator {
                 // Like button
                 let like_text = format!("👍 {}", comment.likes);
                 draw_text_mut(
-                    &mut img, Rgb([100u8, 100u8, 100u8]), text_x, text_y,
-                    PxScale::from(font_size_button), f, &like_text
+                    &mut img,
+                    Rgb([100u8, 100u8, 100u8]),
+                    text_x,
+                    text_y,
+                    PxScale::from(font_size_button),
+                    f,
+                    &like_text,
                 );
-                
+
                 let like_center_x = text_x + 30;
                 targets.push(ComplexTarget {
                     description: format!("{}", comment.likes),
-                    element_type: if self.config.lang == "cn" { "点赞按钮".to_string() } else { "Like button".to_string() },
+                    element_type: if self.config.lang == "cn" {
+                        "点赞按钮".to_string()
+                    } else {
+                        "Like button".to_string()
+                    },
                     x: like_center_x,
                     y: text_y + font_size_button as i32 / 2,
                 });
 
                 // Reply button
                 if comment.has_reply_button {
-                    let reply_text = if self.config.lang == "cn" { "回复" } else { "Reply" };
+                    let reply_text = if self.config.lang == "cn" {
+                        "回复"
+                    } else {
+                        "Reply"
+                    };
                     let reply_x = text_x + 150;
                     draw_text_mut(
-                        &mut img, Rgb([100u8, 100u8, 100u8]), reply_x, text_y,
-                        PxScale::from(font_size_button), f, reply_text
+                        &mut img,
+                        Rgb([100u8, 100u8, 100u8]),
+                        reply_x,
+                        text_y,
+                        PxScale::from(font_size_button),
+                        f,
+                        reply_text,
                     );
-                    
+
                     targets.push(ComplexTarget {
                         description: comment.username.clone(),
-                        element_type: if self.config.lang == "cn" { "回复按钮".to_string() } else { "Reply button".to_string() },
+                        element_type: if self.config.lang == "cn" {
+                            "回复按钮".to_string()
+                        } else {
+                            "Reply button".to_string()
+                        },
                         x: reply_x + 30,
                         y: text_y + font_size_button as i32 / 2,
                     });
@@ -847,8 +974,14 @@ impl CoordinateCalibrator {
             )
         };
 
-        let messages = vec![MessageBuilder::create_user_message(&prompt, Some(image_base64))];
-        let response = model_client.request(&messages).await.map_err(|e| e.to_string())?;
+        let messages = vec![MessageBuilder::create_user_message(
+            &prompt,
+            Some(image_base64),
+        )];
+        let response = model_client
+            .request(&messages)
+            .await
+            .map_err(|e| e.to_string())?;
         self.parse_coordinates(&response.raw_content)
     }
 
@@ -885,8 +1018,14 @@ impl CoordinateCalibrator {
             )
         };
 
-        let messages = vec![MessageBuilder::create_user_message(&prompt, Some(image_base64))];
-        let response = model_client.request(&messages).await.map_err(|e| e.to_string())?;
+        let messages = vec![MessageBuilder::create_user_message(
+            &prompt,
+            Some(image_base64),
+        )];
+        let response = model_client
+            .request(&messages)
+            .await
+            .map_err(|e| e.to_string())?;
         self.parse_coordinates(&response.raw_content)
     }
 
@@ -895,32 +1034,72 @@ impl CoordinateCalibrator {
         // Try [x, y] pattern
         let re = regex::Regex::new(r"\[(\d+)\s*,\s*(\d+)\]").unwrap();
         if let Some(captures) = re.captures(response) {
-            let x: i32 = captures.get(1).ok_or("Missing X")?.as_str().parse().map_err(|_| "Invalid X")?;
-            let y: i32 = captures.get(2).ok_or("Missing Y")?.as_str().parse().map_err(|_| "Invalid Y")?;
+            let x: i32 = captures
+                .get(1)
+                .ok_or("Missing X")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid X")?;
+            let y: i32 = captures
+                .get(2)
+                .ok_or("Missing Y")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid Y")?;
             return Ok((x, y));
         }
 
         // Try element=[x, y] pattern
         let re2 = regex::Regex::new(r"element\s*=\s*\[(\d+)\s*,\s*(\d+)\]").unwrap();
         if let Some(captures) = re2.captures(response) {
-            let x: i32 = captures.get(1).ok_or("Missing X")?.as_str().parse().map_err(|_| "Invalid X")?;
-            let y: i32 = captures.get(2).ok_or("Missing Y")?.as_str().parse().map_err(|_| "Invalid Y")?;
+            let x: i32 = captures
+                .get(1)
+                .ok_or("Missing X")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid X")?;
+            let y: i32 = captures
+                .get(2)
+                .ok_or("Missing Y")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid Y")?;
             return Ok((x, y));
         }
 
         // Try (x, y) pattern
         let re3 = regex::Regex::new(r"\((\d+)\s*,\s*(\d+)\)").unwrap();
         if let Some(captures) = re3.captures(response) {
-            let x: i32 = captures.get(1).ok_or("Missing X")?.as_str().parse().map_err(|_| "Invalid X")?;
-            let y: i32 = captures.get(2).ok_or("Missing Y")?.as_str().parse().map_err(|_| "Invalid Y")?;
+            let x: i32 = captures
+                .get(1)
+                .ok_or("Missing X")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid X")?;
+            let y: i32 = captures
+                .get(2)
+                .ok_or("Missing Y")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid Y")?;
             return Ok((x, y));
         }
 
         // Try x=... y=... pattern
         let re4 = regex::Regex::new(r"x\s*[=:]\s*(\d+).*y\s*[=:]\s*(\d+)").unwrap();
         if let Some(captures) = re4.captures(&response.to_lowercase()) {
-            let x: i32 = captures.get(1).ok_or("Missing X")?.as_str().parse().map_err(|_| "Invalid X")?;
-            let y: i32 = captures.get(2).ok_or("Missing Y")?.as_str().parse().map_err(|_| "Invalid Y")?;
+            let x: i32 = captures
+                .get(1)
+                .ok_or("Missing X")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid X")?;
+            let y: i32 = captures
+                .get(2)
+                .ok_or("Missing Y")?
+                .as_str()
+                .parse()
+                .map_err(|_| "Invalid Y")?;
             return Ok((x, y));
         }
 

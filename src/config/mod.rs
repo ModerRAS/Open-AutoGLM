@@ -6,4 +6,6 @@ mod prompts;
 
 pub use apps::APP_PACKAGES;
 pub use i18n::{get_message, get_messages, Messages};
-pub use prompts::{get_system_prompt, get_system_prompt_with_resolution, SYSTEM_PROMPT_EN, SYSTEM_PROMPT_ZH};
+pub use prompts::{
+    get_system_prompt, get_system_prompt_with_resolution, SYSTEM_PROMPT_EN, SYSTEM_PROMPT_ZH,
+};

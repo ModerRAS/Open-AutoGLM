@@ -118,7 +118,7 @@ mod tests {
     fn test_get_messages() {
         let zh = get_messages("cn");
         assert_eq!(zh.thinking, "思考过程");
-        
+
         let en = get_messages("en");
         assert_eq!(en.thinking, "Thinking");
     }

@@ -3,7 +3,9 @@
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::actions::{finish_action, parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback};
+use crate::actions::{
+    finish_action, parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback,
+};
 use crate::adb::{get_current_app, get_screenshot};
 use crate::config::{get_messages, get_system_prompt, get_system_prompt_with_resolution};
 use crate::model::{MessageBuilder, ModelClient, ModelConfig};
@@ -202,7 +204,9 @@ impl PhoneAgent {
         let result = self.execute_step(Some(task), true).await?;
 
         if result.finished {
-            return Ok(result.message.unwrap_or_else(|| "Task completed".to_string()));
+            return Ok(result
+                .message
+                .unwrap_or_else(|| "Task completed".to_string()));
         }
 
         // Continue until finished or max steps reached
@@ -210,7 +214,9 @@ impl PhoneAgent {
             let result = self.execute_step(None, false).await?;
 
             if result.finished {
-                return Ok(result.message.unwrap_or_else(|| "Task completed".to_string()));
+                return Ok(result
+                    .message
+                    .unwrap_or_else(|| "Task completed".to_string()));
             }
         }
 
@@ -258,18 +264,13 @@ impl PhoneAgent {
         if is_first {
             // Use system prompt with screen resolution for absolute coordinate system
             self.context.push(MessageBuilder::create_system_message(
-                &self.agent_config.get_system_prompt_with_resolution(
-                    screenshot.width,
-                    screenshot.height,
-                ),
+                &self
+                    .agent_config
+                    .get_system_prompt_with_resolution(screenshot.width, screenshot.height),
             ));
 
             let screen_info = MessageBuilder::build_screen_info(&current_app);
-            let text_content = format!(
-                "{}\n\n{}", 
-                user_prompt.unwrap_or(""),
-                screen_info
-            );
+            let text_content = format!("{}\n\n{}", user_prompt.unwrap_or(""), screen_info);
 
             self.context.push(MessageBuilder::create_user_message(
                 &text_content,
@@ -321,7 +322,10 @@ impl PhoneAgent {
             println!("{}", response.thinking);
             println!("{}", "-".repeat(50));
             println!("🎯 {}:", msgs.action);
-            println!("{}", serde_json::to_string_pretty(&action).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&action).unwrap_or_default()
+            );
             println!("{}\n", "=".repeat(50));
         }
 
@@ -331,13 +335,16 @@ impl PhoneAgent {
         }
 
         // Execute action
-        let result = self.action_handler.execute(&action, screenshot.width, screenshot.height);
+        let result = self
+            .action_handler
+            .execute(&action, screenshot.width, screenshot.height);
 
         // Add assistant response to context
-        self.context.push(MessageBuilder::create_assistant_message(&format!(
-            "<think>{}</think><answer>{}</answer>",
-            response.thinking, response.action
-        )));
+        self.context
+            .push(MessageBuilder::create_assistant_message(&format!(
+                "<think>{}</think><answer>{}</answer>",
+                response.thinking, response.action
+            )));
 
         // Check if finished
         let finished = action

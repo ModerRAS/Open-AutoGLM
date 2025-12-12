@@ -1,5 +1,9 @@
 # Open-AutoGLM (Rust)
 
+[![CI](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/ci.yml/badge.svg)](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/ci.yml)
+[![Release](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/release.yml/badge.svg)](https://github.com/ModerRAS/Open-AutoGLM/actions/workflows/release.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 AI-powered agent for automating Android phone interactions - Rust implementation.
 
 [中文版](README_zh.md)

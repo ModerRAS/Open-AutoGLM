@@ -5,15 +5,24 @@ use chrono::{Datelike, Local};
 /// Get the Chinese system prompt with current date and screen resolution.
 pub fn get_system_prompt_zh_with_resolution(width: u32, height: u32) -> String {
     let today = Local::now();
-    let weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+    let weekday_names = [
+        "星期一",
+        "星期二",
+        "星期三",
+        "星期四",
+        "星期五",
+        "星期六",
+        "星期日",
+    ];
     let weekday = weekday_names[today.weekday().num_days_from_monday() as usize];
-    let formatted_date = format!("{}年{}月{}日 {}", 
+    let formatted_date = format!(
+        "{}年{}月{}日 {}",
         today.format("%Y"),
         today.format("%m"),
         today.format("%d"),
         weekday
     );
-    
+
     format!(
         "今天的日期是: {}\n当前屏幕分辨率: {}x{} (宽x高)\n{}",
         formatted_date, width, height, SYSTEM_PROMPT_ZH
@@ -24,7 +33,7 @@ pub fn get_system_prompt_zh_with_resolution(width: u32, height: u32) -> String {
 pub fn get_system_prompt_en_with_resolution(width: u32, height: u32) -> String {
     let today = Local::now();
     let formatted_date = today.format("%B %d, %Y").to_string();
-    
+
     format!(
         "Today's date is: {}\nCurrent screen resolution: {}x{} (width x height)\n{}",
         formatted_date, width, height, SYSTEM_PROMPT_EN
@@ -237,7 +246,7 @@ mod tests {
     fn test_get_system_prompt() {
         let zh = get_system_prompt("cn");
         assert!(zh.contains("今天的日期是"));
-        
+
         let en = get_system_prompt("en");
         assert!(en.contains("Today's date is"));
     }
@@ -250,7 +259,7 @@ mod tests {
         // Check that the prompt includes absolute coordinate system info
         assert!(zh.contains("绝对像素坐标"));
         assert!(zh.contains("[0, 屏幕宽度]"));
-        
+
         let en = get_system_prompt_with_resolution("en", 1080, 1920);
         assert!(en.contains("Today's date is"));
         assert!(en.contains("Current screen resolution: 1080x1920"));

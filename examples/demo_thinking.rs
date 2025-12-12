@@ -11,12 +11,9 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // Configure with verbose output
-    let model_config = ModelConfig::default()
-        .with_base_url("http://localhost:8000/v1");
+    let model_config = ModelConfig::default().with_base_url("http://localhost:8000/v1");
 
-    let agent_config = AgentConfig::default()
-        .with_lang("cn")
-        .with_max_steps(10);  // Limit steps for demo
+    let agent_config = AgentConfig::default().with_lang("cn").with_max_steps(10); // Limit steps for demo
 
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
 
@@ -34,7 +31,10 @@ async fn main() -> anyhow::Result<()> {
     println!("Step 1 completed:");
     println!("  - Success: {}", result.success);
     println!("  - Finished: {}", result.finished);
-    println!("  - Thinking: {}", &result.thinking[..result.thinking.len().min(100)]);
+    println!(
+        "  - Thinking: {}",
+        &result.thinking[..result.thinking.len().min(100)]
+    );
     if result.finished {
         println!("  - Message: {:?}", result.message);
         return Ok(());
@@ -51,7 +51,10 @@ async fn main() -> anyhow::Result<()> {
         println!("\nStep {} completed:", step);
         println!("  - Success: {}", result.success);
         println!("  - Finished: {}", result.finished);
-        println!("  - Thinking preview: {}...", &result.thinking[..result.thinking.len().min(80)]);
+        println!(
+            "  - Thinking preview: {}...",
+            &result.thinking[..result.thinking.len().min(80)]
+        );
 
         if result.finished {
             println!("  - Final message: {:?}", result.message);

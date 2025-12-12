@@ -15,15 +15,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure the agent
     let agent_config = AgentConfig::default()
-        .with_lang("cn")        // Use Chinese prompts
-        .with_max_steps(50);    // Maximum 50 steps
+        .with_lang("cn") // Use Chinese prompts
+        .with_max_steps(50); // Maximum 50 steps
 
     // Create the agent
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
 
     // Run a simple task
     println!("🤖 Starting Phone Agent...\n");
-    
+
     let task = "打开微信";
     println!("📝 Task: {}\n", task);
 

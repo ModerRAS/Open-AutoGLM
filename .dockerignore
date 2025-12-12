@@ -1,0 +1,10 @@
+target/
+tmp/
+.git/
+.github/
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+Cargo.lock

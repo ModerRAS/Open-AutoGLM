@@ -154,7 +154,8 @@ impl ADBConnection {
                 };
 
                 // Extract model if available
-                let model = parts.iter()
+                let model = parts
+                    .iter()
                     .find(|p| p.starts_with("model:"))
                     .map(|m| m.replace("model:", ""));
 

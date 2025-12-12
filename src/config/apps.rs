@@ -6,34 +6,34 @@ use std::collections::HashMap;
 /// Mapping from app display names to Android package names.
 pub static APP_PACKAGES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    
+
     // Social & Messaging
     m.insert("微信", "com.tencent.mm");
     m.insert("QQ", "com.tencent.mobileqq");
     m.insert("微博", "com.sina.weibo");
-    
+
     // E-commerce
     m.insert("淘宝", "com.taobao.taobao");
     m.insert("京东", "com.jingdong.app.mall");
     m.insert("拼多多", "com.xunmeng.pinduoduo");
     m.insert("淘宝闪购", "com.taobao.taobao");
     m.insert("京东秒送", "com.jingdong.app.mall");
-    
+
     // Lifestyle & Social
     m.insert("小红书", "com.xingin.xhs");
     m.insert("豆瓣", "com.douban.frodo");
     m.insert("知乎", "com.zhihu.android");
-    
+
     // Maps & Navigation
     m.insert("高德地图", "com.autonavi.minimap");
     m.insert("百度地图", "com.baidu.BaiduMap");
-    
+
     // Food & Services
     m.insert("美团", "com.sankuai.meituan");
     m.insert("大众点评", "com.dianping.v1");
     m.insert("饿了么", "me.ele");
     m.insert("肯德基", "com.yek.android.kfc.activitys");
-    
+
     // Travel
     m.insert("携程", "ctrip.android.view");
     m.insert("铁路12306", "com.MobileTicket");
@@ -41,7 +41,7 @@ pub static APP_PACKAGES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("去哪儿", "com.Qunar");
     m.insert("去哪儿旅行", "com.Qunar");
     m.insert("滴滴出行", "com.sdu.did.psnger");
-    
+
     // Video & Entertainment
     m.insert("bilibili", "tv.danmaku.bili");
     m.insert("抖音", "com.ss.android.ugc.aweme");
@@ -51,52 +51,52 @@ pub static APP_PACKAGES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("优酷视频", "com.youku.phone");
     m.insert("芒果TV", "com.hunantv.imgo.activity");
     m.insert("红果短剧", "com.phoenix.read");
-    
+
     // Music & Audio
     m.insert("网易云音乐", "com.netease.cloudmusic");
     m.insert("QQ音乐", "com.tencent.qqmusic");
     m.insert("汽水音乐", "com.luna.music");
     m.insert("喜马拉雅", "com.ximalaya.ting.android");
-    
+
     // Reading
     m.insert("番茄小说", "com.dragon.read");
     m.insert("番茄免费小说", "com.dragon.read");
     m.insert("七猫免费小说", "com.kmxs.reader");
-    
+
     // Productivity
     m.insert("飞书", "com.ss.android.lark");
     m.insert("QQ邮箱", "com.tencent.androidqqmail");
-    
+
     // AI & Tools
     m.insert("豆包", "com.larus.nova");
-    
+
     // Health & Fitness
     m.insert("keep", "com.gotokeep.keep");
     m.insert("美柚", "com.lingan.seeyou");
-    
+
     // News & Information
     m.insert("腾讯新闻", "com.tencent.news");
     m.insert("今日头条", "com.ss.android.article.news");
-    
+
     // Real Estate
     m.insert("贝壳找房", "com.lianjia.beike");
     m.insert("安居客", "com.anjuke.android.app");
-    
+
     // Finance
     m.insert("同花顺", "com.hexin.plat.android");
-    
+
     // Games
     m.insert("星穹铁道", "com.miHoYo.hkrpg");
     m.insert("崩坏：星穹铁道", "com.miHoYo.hkrpg");
     m.insert("恋与深空", "com.papegames.lysk.cn");
-    
+
     // System
     m.insert("AndroidSystemSettings", "com.android.settings");
     m.insert("Android System Settings", "com.android.settings");
     m.insert("Android  System Settings", "com.android.settings");
     m.insert("Android-System-Settings", "com.android.settings");
     m.insert("Settings", "com.android.settings");
-    
+
     // Common apps (English names)
     m.insert("AudioRecorder", "com.android.soundrecorder");
     m.insert("audiorecorder", "com.android.soundrecorder");
@@ -141,11 +141,12 @@ pub static APP_PACKAGES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("messages", "com.android.mms");
     m.insert("Phone", "com.android.dialer");
     m.insert("phone", "com.android.dialer");
-    
+
     m
 });
 
 /// Get the package name for an app by its display name.
+#[allow(dead_code)]
 pub fn get_package(app_name: &str) -> Option<&'static str> {
     APP_PACKAGES.get(app_name).copied()
 }
