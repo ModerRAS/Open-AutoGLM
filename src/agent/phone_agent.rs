@@ -3,9 +3,7 @@
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::actions::{
-    finish_action, parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback,
-};
+use crate::actions::{parse_action, ActionHandler, ConfirmationCallback, TakeoverCallback};
 use crate::adb::{get_current_app, get_screenshot};
 use crate::config::{get_messages, get_system_prompt, get_system_prompt_with_resolution};
 use crate::model::{MessageBuilder, ModelClient, ModelConfig};
@@ -304,13 +302,25 @@ impl PhoneAgent {
         };
 
         // Parse action from response
-        let action = match parse_action(&response.action) {
-            Ok(a) => a,
-            Err(_) => {
+        let (action, is_parse_error) = match parse_action(&response.action) {
+            Ok(a) => (a, false),
+            Err(e) => {
                 if self.agent_config.verbose {
                     eprintln!("Failed to parse action: {}", response.action);
+                    eprintln!("Parse error: {}", e);
                 }
-                finish_action(Some(&response.action))
+                // Return a retry action instead of finishing
+                // This will prompt the model to continue/retry in the next step
+                (serde_json::json!({
+                    "_metadata": "error",
+                    "error": "parse_failed",
+                    "message": format!("无法解析动作指令，请重新输出完整的 do(...) 或 finish(...) 指令。原始输出: {}", 
+                        if response.action.len() > 200 { 
+                            format!("{}...", &response.action[..200]) 
+                        } else { 
+                            response.action.clone() 
+                        })
+                }), true)
             }
         };
 
@@ -321,7 +331,11 @@ impl PhoneAgent {
             println!("{}", "-".repeat(50));
             println!("{}", response.thinking);
             println!("{}", "-".repeat(50));
-            println!("🎯 {}:", msgs.action);
+            if is_parse_error {
+                println!("⚠️ 解析错误，将提示模型重试");
+            } else {
+                println!("🎯 {}:", msgs.action);
+            }
             println!(
                 "{}",
                 serde_json::to_string_pretty(&action).unwrap_or_default()
@@ -332,6 +346,27 @@ impl PhoneAgent {
         // Remove image from context to save space
         if let Some(last_msg) = self.context.last_mut() {
             MessageBuilder::remove_images_from_message(last_msg);
+        }
+
+        // If parse error, add the incomplete response and a retry prompt
+        if is_parse_error {
+            // Add the incomplete assistant response to context
+            self.context
+                .push(MessageBuilder::create_assistant_message(&response.action));
+            
+            // Add a user message prompting the model to continue/retry
+            self.context.push(MessageBuilder::create_user_message(
+                "你的回复不完整或格式不正确，没有包含有效的 do(...) 或 finish(...) 指令。请继续输出或重新输出完整的动作指令。",
+                None,
+            ));
+
+            return Ok(StepResult {
+                success: false,
+                finished: false,
+                action: Some(action),
+                thinking: response.thinking,
+                message: Some("解析失败，等待模型重试".to_string()),
+            });
         }
 
         // Execute action
