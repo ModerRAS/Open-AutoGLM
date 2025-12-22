@@ -103,7 +103,7 @@ impl AppSettings {
     pub fn load() -> Self {
         let defaults = Self::default();
 
-        let mut loaded = Self::settings_path()
+        let mut loaded: AppSettings = Self::settings_path()
             .and_then(|path| fs::read_to_string(&path).ok())
             .and_then(|content| serde_json::from_str(&content).ok())
             .unwrap_or_default();
