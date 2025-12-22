@@ -298,6 +298,74 @@ impl PromptMemory {
             .map(|(k, v)| (k.as_str(), v))
             .collect()
     }
+
+    /// Get a summary of all task types for Planner to use.
+    /// Returns a formatted string listing all available task types with their prompts.
+    pub fn get_task_types_summary(&self) -> String {
+        if self.prompts.is_empty() {
+            return "（暂无已保存的任务类型记忆）".to_string();
+        }
+
+        let mut summaries: Vec<String> = self.prompts
+            .iter()
+            .map(|(task_type, entry)| {
+                let prompt_preview = if entry.system_prompt.is_empty() {
+                    "(无提示词，仅有纠偏记录)".to_string()
+                } else if entry.system_prompt.chars().count() > 50 {
+                    format!("{}...", entry.system_prompt.chars().take(50).collect::<String>())
+                } else {
+                    entry.system_prompt.clone()
+                };
+                
+                let stats = format!(
+                    "使用{}次{}",
+                    entry.usage_count,
+                    entry.success_rate.map(|r| format!(", 成功率{:.0}%", r * 100.0)).unwrap_or_default()
+                );
+                
+                format!("- **{}**: {} [{}]", task_type, prompt_preview, stats)
+            })
+            .collect();
+        
+        summaries.sort(); // Alphabetical order
+        summaries.join("\n")
+    }
+
+    /// Get task types as a simple list (for matching).
+    pub fn get_task_types_list(&self) -> Vec<String> {
+        self.prompts.keys().cloned().collect()
+    }
+
+    /// Find the best matching task type for a given description.
+    /// Returns None if no good match is found (Planner should create a new type).
+    /// This is a simple keyword-based matching; Planner can do better semantic matching.
+    pub fn find_matching_task_type(&self, description: &str) -> Option<String> {
+        let desc_lower = description.to_lowercase();
+        
+        // Simple keyword matching - find task type whose name appears in description
+        for task_type in self.prompts.keys() {
+            let type_lower = task_type.to_lowercase();
+            // Check if task type name (or parts of it) appear in description
+            if desc_lower.contains(&type_lower) || type_lower.contains(&desc_lower) {
+                return Some(task_type.clone());
+            }
+            // Check individual words
+            for word in type_lower.split(|c: char| !c.is_alphanumeric()) {
+                if word.len() > 2 && desc_lower.contains(word) {
+                    return Some(task_type.clone());
+                }
+            }
+        }
+        
+        None
+    }
+
+    /// Create or get a task type entry.
+    /// If the task type exists, returns it; otherwise creates a new empty entry.
+    pub fn ensure_task_type(&mut self, task_type: impl Into<String>) -> &mut PromptEntry {
+        let task_type = task_type.into();
+        self.prompts.entry(task_type).or_insert_with(|| PromptEntry::new(""))
+    }
 }
 
 /// Prompt memory errors.

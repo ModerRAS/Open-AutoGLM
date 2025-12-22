@@ -125,7 +125,11 @@ pub const DEFAULT_PLANNER_SYSTEM_PROMPT_CN: &str = r#"你是一个手机自动�
 ### 添加任务
 {"action": "add_todo", "description": "任务描述-要具体清晰", "task_type": "任务类型"}
 
-task_type: "微信操作", "小红书操作", "抖音操作", "系统操作", "通用任务"
+**task_type 是动态的！**
+- 你可以使用已有的任务类型（系统会提供列表）
+- 也可以创建新的任务类型（描述性的中文名称，如 "微信聊天"、"淘宝购物"、"地图导航" 等）
+- 相似任务使用相同的 task_type，系统会自动学习并记忆优化提示词
+- 新 task_type 会被自动保存供以后使用
 
 ### 启动执行器
 {"action": "start_executor", "task_id": "task_1"}
@@ -158,11 +162,11 @@ task_type: "微信操作", "小红书操作", "抖音操作", "系统操作", "�
 
 **第1步**: 添加第一个任务
 我来规划这个任务。首先需要打开小红书。
-{"action": "add_todo", "description": "打开小红书应用", "task_type": "小红书操作"}
+{"action": "add_todo", "description": "打开小红书应用", "task_type": "小红书浏览"}
 
 **第2步**: 系统确认后，继续添加
 继续添加浏览任务。
-{"action": "add_todo", "description": "浏览首页帖子，点开几个有趣的查看详情", "task_type": "小红书操作"}
+{"action": "add_todo", "description": "浏览首页帖子，点开几个有趣的查看详情", "task_type": "小红书浏览"}
 
 **第3步**: 任务列表完整，启动执行
 任务列表已完整，现在启动执行器。
@@ -180,7 +184,8 @@ task_type: "微信操作", "小红书操作", "抖音操作", "系统操作", "�
 2. **不要用代码块**，直接输出 JSON 对象
 3. **任务描述要具体**，包含清晰的操作指导
 4. **用户中途反馈时**，使用 inject_prompt 而不是添加新任务
-5. **reset_executor 只清除对话历史**，不会影响任务列表"#;
+5. **reset_executor 只清除对话历史**，不会影响任务列表
+6. **task_type 要有描述性**，方便系统学习和复用记忆"#;
 
 /// Default Planner system prompt (English).
 pub const DEFAULT_PLANNER_SYSTEM_PROMPT_EN: &str = r#"You are a phone automation task planning and supervision assistant. Your job is to break down user requests into sub-tasks, supervise execution, and intervene when needed.
@@ -405,12 +410,39 @@ impl PlannerAgent {
         self.executor.enqueue(ExecutorCommand::Stop);
     }
 
-    /// Initialize planner context with system prompt.
+    /// Initialize planner context with system prompt and available task types.
     fn initialize_context(&mut self) {
         self.context.clear();
-        self.context.push(MessageBuilder::create_system_message(
-            &self.config.get_system_prompt(),
-        ));
+        
+        // Build system prompt with available task types
+        let base_prompt = self.config.get_system_prompt();
+        let task_types_summary = self.prompt_memory.get_task_types_summary();
+        
+        let full_prompt = format!(
+            "{}\n\n## 已保存的任务类型记忆\n\n以下是系统已学习的任务类型，优先使用这些类型以便复用记忆：\n\n{}\n\n你也可以创建新的任务类型，系统会自动学习。",
+            base_prompt,
+            task_types_summary
+        );
+        
+        self.context.push(MessageBuilder::create_system_message(&full_prompt));
+    }
+
+    /// Refresh the system context with updated task types.
+    /// Call this when task types change significantly.
+    pub fn refresh_context_with_task_types(&mut self) {
+        if !self.context.is_empty() {
+            // Update the system message (first message)
+            let base_prompt = self.config.get_system_prompt();
+            let task_types_summary = self.prompt_memory.get_task_types_summary();
+            
+            let full_prompt = format!(
+                "{}\n\n## 已保存的任务类型记忆\n\n以下是系统已学习的任务类型，优先使用这些类型以便复用记忆：\n\n{}\n\n你也可以创建新的任务类型，系统会自动学习。",
+                base_prompt,
+                task_types_summary
+            );
+            
+            self.context[0] = MessageBuilder::create_system_message(&full_prompt);
+        }
     }
 
     /// Execute one tick of the Executor loop.
@@ -850,6 +882,9 @@ impl PlannerAgent {
                 };
                 println!("📝 新提示词: {}", display_prompt);
                 tracing::info!("Consolidated corrections for task type: {}", task_type);
+                
+                // Refresh context so Planner knows about updated task types
+                self.refresh_context_with_task_types();
             }
         }
     }
