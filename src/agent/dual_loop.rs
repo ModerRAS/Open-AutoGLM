@@ -213,13 +213,21 @@ impl DualLoopRunner {
             let mut executor_interval = interval(Duration::from_millis(self.config.executor_interval_ms));
 
             loop {
-                tokio::select! {
-                    // Handle user input
-                    Some(input) = user_input_rx.recv() => {
-                        self.planner.queue_user_input(input);
+                // PRIORITY 1: Always check for user input first (non-blocking)
+                // This ensures user commands are processed immediately
+                while let Ok(input) = user_input_rx.try_recv() {
+                    println!("\n📥 [用户输入已接收] {}", input);
+                    self.planner.queue_user_input(input);
+                    // Process user input immediately
+                    if !self.paused.load(Ordering::SeqCst) {
+                        let _ = self.planner.tick_planner().await;
                     }
+                }
 
-                    // Handle control commands
+                tokio::select! {
+                    biased; // Use biased selection to prioritize in order
+
+                    // Handle control commands (highest priority)
                     Some(cmd) = control_rx.recv() => {
                         match cmd {
                             ControlCommand::Stop => {
