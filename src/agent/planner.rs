@@ -1071,13 +1071,11 @@ impl PlannerAgent {
             }
         }
 
-        // Try to find bare JSON object in the response
-        if let Some(start) = response.find('{') {
-            if let Some(end) = response.rfind('}') {
-                let json_str = &response[start..=end];
-                if let Ok(action) = serde_json::from_str::<PlannerAction>(json_str) {
-                    return Some(action);
-                }
+        // Try to find the FIRST complete JSON object in the response
+        // This handles cases where Planner outputs multiple JSONs
+        if let Some(json_str) = self.extract_first_json_object(response) {
+            if let Ok(action) = serde_json::from_str::<PlannerAction>(&json_str) {
+                return Some(action);
             }
         }
 
@@ -1094,6 +1092,46 @@ impl PlannerAgent {
                 message: response.to_string(),
             })
         }
+    }
+
+    /// Extract the first complete JSON object from text.
+    /// Uses brace counting to find matching pairs.
+    fn extract_first_json_object(&self, text: &str) -> Option<String> {
+        let start = text.find('{')?;
+        let chars: Vec<char> = text[start..].chars().collect();
+        
+        let mut brace_count = 0;
+        let mut in_string = false;
+        let mut escape_next = false;
+        
+        for (i, ch) in chars.iter().enumerate() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+            
+            match ch {
+                '\\' if in_string => {
+                    escape_next = true;
+                }
+                '"' => {
+                    in_string = !in_string;
+                }
+                '{' if !in_string => {
+                    brace_count += 1;
+                }
+                '}' if !in_string => {
+                    brace_count -= 1;
+                    if brace_count == 0 {
+                        // Found the end of the first complete JSON object
+                        return Some(chars[..=i].iter().collect());
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        None
     }
 
     /// Extract JSON from markdown code blocks or bare JSON.
