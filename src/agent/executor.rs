@@ -7,9 +7,13 @@ use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use directories::ProjectDirs;
 
 use super::phone_agent::{AgentConfig, PhoneAgent, StepResult};
 use crate::model::ModelConfig;
@@ -321,35 +325,24 @@ impl ExecutorWrapper {
     /// Execute a single tick of the executor loop.
     /// Returns feedback for the Planner.
     pub async fn tick(&mut self) -> ExecutorFeedback {
-        // Process any pending commands first
         while self.process_next_command() {}
 
-        // Check if we should execute
-        let should_execute = matches!(self.status, ExecutorStatus::Running);
-
-        if !should_execute {
+        if !matches!(self.status, ExecutorStatus::Running) {
             return self.create_feedback(None, true, false);
         }
 
-        // Determine the task for this step
         let task = if self.inner.step_count() == 0 {
-            // First step - use task description
             self.current_task_description.clone()
         } else if let Some(prompt) = self.pending_prompt.take() {
-            // Injected prompt
             Some(prompt)
         } else {
-            // Continuation step
             None
         };
 
-        // Execute step
-        let result = self.inner.step(task.as_deref()).await;
-
-        match result {
+        match self.inner.step(task.as_deref()).await {
             Ok(step_result) => {
-                // Check if this was a parse error (indicates potential context overflow)
-                let is_parse_error = step_result.action
+                let is_parse_error = step_result
+                    .action
                     .as_ref()
                     .and_then(|a| a.get("error"))
                     .and_then(|e| e.as_str())
@@ -362,33 +355,21 @@ impl ExecutorWrapper {
                         "Executor parse error (consecutive: {})",
                         self.consecutive_parse_errors
                     );
-                    
-                    // If too many consecutive parse errors, likely context overflow
+
                     if self.consecutive_parse_errors >= DEFAULT_PARSE_ERROR_THRESHOLD {
                         tracing::error!(
                             "Executor context overflow detected: {} consecutive parse errors",
                             self.consecutive_parse_errors
                         );
-                        // Reset agent context to recover and avoid runaway tokens
-                        self.inner.reset();
-                        self.stuck_count = 0;
-                        // Add a minimal reminder for next step to strictly follow schema
-                        self.pending_prompt = Some(
-                            "请严格输出 do(...) 或 finish(...)，不要重复总结，直接给动作指令。".to_string(),
-                        );
-                        // Clear counter after reset
-                        self.consecutive_parse_errors = 0;
+                        self.reset_context_on_error();
                     }
                 } else {
-                    // Reset parse error count on successful parse
                     self.consecutive_parse_errors = 0;
                 }
 
-                // Calculate screen hash from context (simplified - using thinking as proxy)
                 let screen_hash = self.calculate_context_hash();
                 let screen_changed = self.detect_screen_change(screen_hash);
 
-                // Check for stuck
                 if !screen_changed && !is_parse_error {
                     self.stuck_count += 1;
                     if self.stuck_count >= self.stuck_threshold {
@@ -402,39 +383,35 @@ impl ExecutorWrapper {
                     self.stuck_count = 0;
                 }
 
-                // Check for completion
                 if step_result.finished {
                     self.status = ExecutorStatus::Completed;
                     tracing::info!("Executor completed task");
                 }
 
-                let context_overflow = self.consecutive_parse_errors >= DEFAULT_PARSE_ERROR_THRESHOLD;
+                let context_overflow =
+                    self.consecutive_parse_errors >= DEFAULT_PARSE_ERROR_THRESHOLD;
+
+                self.log_context_snapshot(Some(&step_result), context_overflow);
+
                 self.create_feedback(Some(&step_result), screen_changed, context_overflow)
             }
             Err(e) => {
                 self.status = ExecutorStatus::Failed(e.to_string());
                 tracing::error!("Executor failed: {}", e);
+                self.log_context_snapshot(None, false);
                 self.create_feedback(None, true, false)
             }
         }
     }
-
-    /// Calculate a hash of the current context for change detection.
+    /// Hash a small slice of the context (text only) to detect screen changes.
     fn calculate_context_hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-
-        // Hash the last few messages in context
         let context = self.inner.context();
         let recent_count = context.len().min(3);
         for msg in context.iter().rev().take(recent_count) {
-            // Hash the content, excluding image data
             if let Some(content) = msg.get("content") {
                 let content_str = content.to_string();
-                // Remove base64 image data for hashing
-                let cleaned: String = content_str
-                    .chars()
-                    .take(1000) // Only use first 1000 chars
-                    .collect();
+                let cleaned: String = content_str.chars().take(1000).collect();
                 cleaned.hash(&mut hasher);
             }
         }
@@ -442,18 +419,129 @@ impl ExecutorWrapper {
         hasher.finish()
     }
 
+    /// Reset context to recover and avoid runaway tokens.
+    fn reset_context_on_error(&mut self) {
+        self.inner.reset();
+        self.stuck_count = 0;
+        self.pending_prompt = Some(
+            "请严格输出 do(...) 或 finish(...)，不要重复总结，直接给动作指令。".to_string(),
+        );
+        self.consecutive_parse_errors = 0;
+        tracing::info!("Executor context reset due to parse error");
+    }
+
+    /// Append a slim context snapshot to a log file for debugging.
+    fn log_context_snapshot(&self, result: Option<&StepResult>, context_overflow: bool) {
+        let dirs: Option<PathBuf> = ProjectDirs::from("com", "moderras", "phone-agent")
+            .map(|d| d.data_dir().join("logs"));
+
+        let Some(dir) = dirs else { return }; // no directory available
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+
+        let path = dir.join("executor_context.log");
+
+        let context_slim: Vec<String> = self
+            .inner
+            .context()
+            .iter()
+            .rev()
+            .take(4)
+            .map(|msg| Self::summarize_message(msg))
+            .collect();
+
+        let action_summary = result.and_then(|r| r.action.as_ref().map(|a| Self::summarize_message(a)));
+        let thinking = result.map(|r| Self::shorten(&r.thinking));
+        let message = result.and_then(|r| r.message.clone());
+
+        let entry = serde_json::json!({
+            "timestamp": current_timestamp(),
+            "step": self.inner.step_count(),
+            "status": format!("{:?}", self.status),
+            "context_overflow": context_overflow,
+            "consecutive_parse_errors": self.consecutive_parse_errors,
+            "context": context_slim,
+            "thinking": thinking,
+            "message": message,
+            "action": action_summary,
+        });
+
+        if let Ok(line) = serde_json::to_string(&entry) {
+            let _ = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut f| writeln!(f, "{}", line));
+        }
+    }
+
+    fn summarize_message(val: &Value) -> String {
+        if let Some(obj) = val.as_object() {
+            let role = obj
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let content = obj.get("content");
+
+            if let Some(Value::String(s)) = content {
+                return format!("{}: {}", role, Self::shorten(s));
+            }
+
+            if let Some(Value::Array(arr)) = content {
+                let texts: Vec<String> = arr
+                    .iter()
+                    .filter_map(|item| {
+                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                            Some(Self::shorten(text))
+                        } else if let Some(txt) = item.get("content").and_then(|t| t.as_str()) {
+                            Some(Self::shorten(txt))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !texts.is_empty() {
+                    return format!("{}: {}", role, texts.join(" | "));
+                }
+            }
+
+            return Self::shorten(&val.to_string());
+        }
+
+        Self::shorten(&val.to_string())
+    }
+
+    fn shorten(s: &str) -> String {
+        const MAX: usize = 400;
+        if s.chars().count() > MAX {
+            let mut iter = s.chars();
+            let prefix: String = iter.by_ref().take(MAX).collect();
+            let remaining = iter.count();
+            format!("{}... <{} chars truncated>", prefix, remaining)
+        } else {
+            s.to_string()
+        }
+    }
+
     /// Detect if screen changed based on hash.
     fn detect_screen_change(&mut self, current_hash: u64) -> bool {
         let changed = match self.last_screen_hash {
             Some(last_hash) => last_hash != current_hash,
-            None => true, // First screen is always "changed"
+            None => true,
         };
         self.last_screen_hash = Some(current_hash);
         changed
     }
 
     /// Create feedback for Planner.
-    fn create_feedback(&self, result: Option<&StepResult>, screen_changed: bool, context_overflow: bool) -> ExecutorFeedback {
+    fn create_feedback(
+        &self,
+        result: Option<&StepResult>,
+        screen_changed: bool,
+        context_overflow: bool,
+    ) -> ExecutorFeedback {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
