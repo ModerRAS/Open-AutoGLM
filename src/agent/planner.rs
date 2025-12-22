@@ -319,6 +319,8 @@ pub struct PlannerAgent {
     execution_log: Vec<String>,
     /// Whether the planner is running.
     is_running: bool,
+    /// Task types pending consolidation (accumulated corrections).
+    pending_consolidation_task_types: Vec<String>,
 }
 
 impl PlannerAgent {
@@ -357,6 +359,7 @@ impl PlannerAgent {
             consecutive_stuck_count: 0,
             execution_log: Vec::new(),
             is_running: false,
+            pending_consolidation_task_types: Vec::new(),
         }
     }
 
@@ -425,13 +428,16 @@ impl PlannerAgent {
             return false;
         }
 
-        // 1. Process any pending user input
+        // 1. Process any pending consolidations (corrections -> optimized prompts)
+        self.process_pending_consolidations().await;
+
+        // 2. Process any pending user input
         self.process_user_input().await;
 
-        // 2. Supervise executor and decide actions
+        // 3. Supervise executor and decide actions
         self.supervise_executor().await;
 
-        // 3. Check if we should continue
+        // 4. Check if we should continue
         !self.todo_list.is_all_done() || self.has_pending_input()
     }
 
@@ -776,6 +782,86 @@ impl PlannerAgent {
         self.execution_log.clear();
     }
 
+    /// Consolidate user corrections into an optimized prompt.
+    /// This is called when enough corrections accumulate for a task type.
+    async fn consolidate_corrections(&mut self, task_type: &str) {
+        let corrections_summary = match self.prompt_memory.get_corrections_summary(task_type) {
+            Some(s) if !s.is_empty() => s,
+            _ => return,
+        };
+
+        let current_prompt = self.prompt_memory.get_prompt(task_type)
+            .unwrap_or("")
+            .to_string();
+
+        println!("📚 [System] 正在整合 {} 的用户纠偏记录...", task_type);
+
+        let request = if self.config.lang == "cn" {
+            format!(
+                "任务类型: {}\n\n当前系统提示词:\n{}\n\n用户纠偏记录:\n{}\n\n\
+                请根据用户的纠偏记录，生成一个优化后的系统提示词。\n\
+                这个提示词应该包含用户反复强调的操作规范和注意事项。\n\
+                确保新的提示词简洁明了，能够帮助执行器在未来避免同样的错误。\n\
+                只输出优化后的提示词内容，不要其他解释。",
+                task_type,
+                if current_prompt.is_empty() { "(无)" } else { &current_prompt },
+                corrections_summary
+            )
+        } else {
+            format!(
+                "Task type: {}\n\nCurrent system prompt:\n{}\n\nUser corrections:\n{}\n\n\
+                Based on user corrections, generate an optimized system prompt.\n\
+                Include the operational guidelines that users have repeatedly emphasized.\n\
+                Ensure the new prompt is concise and helps the executor avoid similar mistakes.\n\
+                Only output the optimized prompt content, no explanations.",
+                task_type,
+                if current_prompt.is_empty() { "(none)" } else { &current_prompt },
+                corrections_summary
+            )
+        };
+
+        // Request optimization from planner model
+        let messages = vec![
+            MessageBuilder::create_system_message("You are a prompt optimization assistant. Generate concise, actionable system prompts."),
+            MessageBuilder::create_user_message(&request, None),
+        ];
+
+        if let Ok(response) = self.model_client.request(&messages).await {
+            let optimized_prompt = response.action.trim().to_string();
+            if !optimized_prompt.is_empty() {
+                // Update the prompt
+                self.prompt_memory.update(task_type, &optimized_prompt);
+                
+                // Clear corrections after consolidation
+                if let Some(entry) = self.prompt_memory.get_mut(task_type) {
+                    entry.clear_corrections();
+                }
+                
+                if let Some(path) = &self.config.prompt_memory_path {
+                    let _ = self.prompt_memory.save(path);
+                }
+                
+                println!("✅ [System] 已整合用户纠偏到记忆: {}", task_type);
+                println!("📝 新提示词: {}", 
+                    if optimized_prompt.len() > 100 { 
+                        format!("{}...", &optimized_prompt[..100]) 
+                    } else { 
+                        optimized_prompt.clone() 
+                    }
+                );
+                tracing::info!("Consolidated corrections for task type: {}", task_type);
+            }
+        }
+    }
+
+    /// Process any pending consolidation tasks.
+    pub async fn process_pending_consolidations(&mut self) {
+        let task_types: Vec<String> = self.pending_consolidation_task_types.drain(..).collect();
+        for task_type in task_types {
+            self.consolidate_corrections(&task_type).await;
+        }
+    }
+
     /// Get planner's decision based on current context.
     /// Used by supervise_executor (no need to print response again).
     async fn get_planner_decision(&mut self) -> Option<PlannerAction> {
@@ -985,6 +1071,27 @@ impl PlannerAgent {
             }
             PlannerAction::InjectPrompt { content } => {
                 println!("💉 [System] 注入提示词: {}", content);
+                
+                // Auto-learn: record this correction for the current task type
+                if let Some(task) = self.todo_list.current_running() {
+                    let task_type = task.task_type.clone();
+                    let context = Some(format!("任务: {} - {}", task.id, task.description));
+                    self.prompt_memory.add_correction(&task_type, &content, context);
+                    
+                    // Check if we should consolidate corrections
+                    let correction_count = self.prompt_memory.pending_corrections(&task_type);
+                    if correction_count >= 3 {
+                        println!("📚 [System] 检测到 {} 条纠偏记录，将自动整合到记忆中...", correction_count);
+                        // Schedule consolidation (will be done async)
+                        self.pending_consolidation_task_types.push(task_type);
+                    }
+                    
+                    // Save memory
+                    if let Some(path) = &self.config.prompt_memory_path {
+                        let _ = self.prompt_memory.save(path);
+                    }
+                }
+                
                 self.executor.enqueue(ExecutorCommand::InjectPrompt { content });
             }
             PlannerAction::ResetExecutor => {

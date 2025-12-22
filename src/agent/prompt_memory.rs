@@ -2,6 +2,10 @@
 //!
 //! This module provides a simple key-value store for system prompts,
 //! organized by task type. No vector database or semantic search is used.
+//!
+//! Enhanced with user correction learning: when users manually correct
+//! the executor's behavior, the corrections are accumulated and can be
+//! consolidated into optimized prompts.
 
 use std::collections::HashMap;
 use std::fs;
@@ -9,6 +13,27 @@ use std::path::Path;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+
+/// A user correction record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionRecord {
+    /// The correction content (what user told the executor to do).
+    pub content: String,
+    /// Context: what was happening when user corrected.
+    pub context: Option<String>,
+    /// Timestamp of correction.
+    pub timestamp: String,
+}
+
+impl CorrectionRecord {
+    pub fn new(content: impl Into<String>, context: Option<String>) -> Self {
+        Self {
+            content: content.into(),
+            context,
+            timestamp: Utc::now().to_rfc3339(),
+        }
+    }
+}
 
 /// A single prompt entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +51,9 @@ pub struct PromptEntry {
     /// Notes about the prompt.
     #[serde(default)]
     pub notes: Option<String>,
+    /// User corrections accumulated (not yet consolidated).
+    #[serde(default)]
+    pub corrections: Vec<CorrectionRecord>,
 }
 
 impl PromptEntry {
@@ -37,6 +65,7 @@ impl PromptEntry {
             success_rate: None,
             usage_count: 0,
             notes: None,
+            corrections: Vec::new(),
         }
     }
 
@@ -52,6 +81,35 @@ impl PromptEntry {
         self.usage_count += 1;
         let new_successes = if success { current_successes + 1.0 } else { current_successes };
         self.success_rate = Some(new_successes / self.usage_count as f32);
+    }
+
+    /// Add a user correction.
+    pub fn add_correction(&mut self, content: impl Into<String>, context: Option<String>) {
+        self.corrections.push(CorrectionRecord::new(content, context));
+        self.last_updated = Utc::now().to_rfc3339();
+    }
+
+    /// Get pending corrections count.
+    pub fn pending_corrections_count(&self) -> usize {
+        self.corrections.len()
+    }
+
+    /// Clear corrections (after consolidation).
+    pub fn clear_corrections(&mut self) {
+        self.corrections.clear();
+    }
+
+    /// Get all corrections as a summary string.
+    pub fn corrections_summary(&self) -> String {
+        if self.corrections.is_empty() {
+            return String::new();
+        }
+        self.corrections
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("{}. {}", i + 1, c.content))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -161,6 +219,43 @@ impl PromptMemory {
     /// Check if a task type exists.
     pub fn contains(&self, task_type: &str) -> bool {
         self.prompts.contains_key(task_type)
+    }
+
+    /// Add a correction for a task type.
+    /// If the task type doesn't exist, creates a new entry with default prompt.
+    pub fn add_correction(&mut self, task_type: impl Into<String>, content: impl Into<String>, context: Option<String>) {
+        let task_type = task_type.into();
+        let content = content.into();
+        
+        if let Some(entry) = self.prompts.get_mut(&task_type) {
+            entry.add_correction(content, context);
+        } else {
+            // Create new entry with empty prompt and add correction
+            let mut entry = PromptEntry::new("");
+            entry.add_correction(content, context);
+            self.prompts.insert(task_type, entry);
+        }
+    }
+
+    /// Get pending corrections count for a task type.
+    pub fn pending_corrections(&self, task_type: &str) -> usize {
+        self.prompts.get(task_type)
+            .map(|e| e.pending_corrections_count())
+            .unwrap_or(0)
+    }
+
+    /// Get all task types with pending corrections.
+    pub fn task_types_with_corrections(&self) -> Vec<&str> {
+        self.prompts
+            .iter()
+            .filter(|(_, e)| e.pending_corrections_count() > 0)
+            .map(|(k, _)| k.as_str())
+            .collect()
+    }
+
+    /// Get corrections summary for a task type.
+    pub fn get_corrections_summary(&self, task_type: &str) -> Option<String> {
+        self.prompts.get(task_type).map(|e| e.corrections_summary())
     }
 
     /// Get the number of stored prompts.
