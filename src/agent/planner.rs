@@ -479,8 +479,16 @@ impl PlannerAgent {
             println!("\n🧠 [Planner] Processing user input: {}", input);
             tracing::info!("Processing user input: {}", input);
 
-            // Add user message to context
-            self.context.push(MessageBuilder::create_user_message(&input, None));
+            // Build executor status to include with user input
+            let executor_status_summary = self.build_executor_status_summary();
+            let todo_summary = self.build_todo_summary();
+            
+            // Add user message along with current executor state
+            let enriched_input = format!(
+                "[用户输入]\n{}\n\n[当前执行器状态]\n{}\n\n[当前任务列表]\n{}",
+                input, executor_status_summary, todo_summary
+            );
+            self.context.push(MessageBuilder::create_user_message(&enriched_input, None));
 
             // Continue conversation until planner stops adding tasks or starts executor
             self.continue_planner_conversation().await;
@@ -983,23 +991,41 @@ impl PlannerAgent {
             status, step_count
         );
 
-        // Add recent feedback
+        // Add recent feedback with full details
         if !self.executor_feedback_history.is_empty() {
-            summary.push_str("\n最近反馈:\n");
+            summary.push_str("\n=== 执行器最近输出 ===\n");
             for (i, feedback) in self.executor_feedback_history.iter().enumerate() {
                 summary.push_str(&format!(
-                    "  {}. step={}, changed={}, status={:?}\n",
+                    "\n--- 第{}条反馈 (step={}, 屏幕变化={}) ---\n",
                     i + 1,
                     feedback.step_count,
-                    feedback.screen_changed,
-                    feedback.status
+                    if feedback.screen_changed { "是" } else { "否" }
                 ));
+                
                 if let Some(ref result) = feedback.last_result {
-                    if let Some(ref msg) = result.message {
-                        summary.push_str(&format!("     message: {}\n", msg));
+                    // Include thinking (执行器的思考过程)
+                    if !result.thinking.is_empty() {
+                        summary.push_str(&format!("💭 思考过程:\n{}\n", result.thinking));
                     }
+                    
+                    // Include action type
+                    if let Some(ref action_type) = result.action_type {
+                        summary.push_str(&format!("🎯 执行动作: {}\n", action_type));
+                    }
+                    
+                    // Include message if any
+                    if let Some(ref msg) = result.message {
+                        summary.push_str(&format!("💬 消息: {}\n", msg));
+                    }
+                    
+                    // Include success/finished status
+                    summary.push_str(&format!(
+                        "状态: success={}, finished={}\n",
+                        result.success, result.finished
+                    ));
                 }
             }
+            summary.push_str("=== 执行器输出结束 ===\n");
         }
 
         summary
