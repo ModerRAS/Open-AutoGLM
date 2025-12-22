@@ -1,8 +1,8 @@
 //! Main Iced application for Phone Agent GUI.
 
 use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable,
-    text, text_input, toggler, vertical_space,
+    button, column, container, horizontal_rule, horizontal_space, pick_list, row, scrollable, text,
+    text_input, toggler, vertical_space,
 };
 use iced::{Element, Length, Task, Theme};
 
@@ -378,10 +378,7 @@ impl PhoneAgentApp {
             // Settings actions
             Message::SaveSettings => {
                 let settings = self.settings.clone();
-                Task::perform(
-                    async move { settings.save() },
-                    Message::SettingsSaved,
-                )
+                Task::perform(async move { settings.save() }, Message::SettingsSaved)
             }
             Message::ResetSettings => {
                 self.settings = AppSettings::default();
@@ -423,7 +420,8 @@ impl PhoneAgentApp {
                 }
 
                 self.state = AppState::Running;
-                self.logger.info(format!("开始执行任务: {}", self.task_input));
+                self.logger
+                    .info(format!("开始执行任务: {}", self.task_input));
                 self.status = "正在执行...".to_string();
 
                 let settings = self.settings.clone();
@@ -441,7 +439,8 @@ impl PhoneAgentApp {
                 Task::none()
             }
             Message::TaskStep(step) => {
-                let action_str = step.action
+                let action_str = step
+                    .action
                     .as_ref()
                     .map(|a| a.to_string())
                     .unwrap_or_else(|| "无".to_string());
@@ -487,10 +486,8 @@ impl PhoneAgentApp {
                         self.settings.scale_y = scale_y;
                         self.scale_x_input = format!("{:.4}", scale_x);
                         self.scale_y_input = format!("{:.4}", scale_y);
-                        self.logger.success(format!(
-                            "校准完成: X={:.4}, Y={:.4}",
-                            scale_x, scale_y
-                        ));
+                        self.logger
+                            .success(format!("校准完成: X={:.4}, Y={:.4}", scale_x, scale_y));
                         self.status = "校准完成".to_string();
                     }
                     Err(e) => {
@@ -553,9 +550,7 @@ impl PhoneAgentApp {
                 button::secondary
             });
 
-        row![main_btn, settings_btn, logs_btn]
-            .spacing(10)
-            .into()
+        row![main_btn, settings_btn, logs_btn].spacing(10).into()
     }
 
     /// Status bar.
@@ -577,8 +572,7 @@ impl PhoneAgentApp {
 
     /// Main view with task input and execution.
     fn view_main(&self) -> Element<'_, Message> {
-        let title = text("📱 Phone Agent")
-            .size(28);
+        let title = text("📱 Phone Agent").size(28);
 
         let task_input = text_input("输入任务，例如: 打开微信", &self.task_input)
             .on_input(Message::TaskInputChanged)
@@ -601,16 +595,11 @@ impl PhoneAgentApp {
             .on_press(Message::RunCalibration)
             .padding([10, 20]);
 
-        let task_row = row![task_input, run_btn, calibrate_btn]
-            .spacing(10);
+        let task_row = row![task_input, run_btn, calibrate_btn].spacing(10);
 
         // Log display
         let log_content = self.logger.format_all();
-        let log_view = scrollable(
-            text(log_content)
-                .size(13)
-        )
-        .height(Length::Fill);
+        let log_view = scrollable(text(log_content).size(13)).height(Length::Fill);
 
         let log_container = container(log_view)
             .width(Length::Fill)
@@ -637,16 +626,16 @@ impl PhoneAgentApp {
 
         // Model settings section
         let model_section = self.view_model_settings();
-        
+
         // Device settings section
         let device_section = self.view_device_settings();
-        
+
         // Coordinate settings section
         let coord_section = self.view_coord_settings();
-        
+
         // Retry settings section
         let retry_section = self.view_retry_settings();
-        
+
         // Calibration settings section
         let calib_section = self.view_calib_settings();
 
@@ -812,8 +801,7 @@ impl PhoneAgentApp {
 
         let enable_toggle = row![
             text("启用自动校准").width(120),
-            toggler(self.settings.enable_calibration)
-                .on_toggle(Message::EnableCalibrationToggled),
+            toggler(self.settings.enable_calibration).on_toggle(Message::EnableCalibrationToggled),
         ]
         .spacing(10);
 
@@ -855,11 +843,7 @@ impl PhoneAgentApp {
         let header = row![title, horizontal_space(), clear_btn];
 
         let log_content = self.logger.format_all();
-        let log_view = scrollable(
-            text(log_content)
-                .size(13)
-        )
-        .height(Length::Fill);
+        let log_view = scrollable(text(log_content).size(13)).height(Length::Fill);
 
         let log_container = container(log_view)
             .width(Length::Fill)
@@ -914,7 +898,8 @@ async fn run_agent_task(settings: AppSettings, task: String) -> Result<String, S
         .with_retry_delay(settings.retry_delay);
 
     // Build agent config
-    let coord_system = CoordSystemOption::from_str(&settings.coordinate_system).as_coordinate_system();
+    let coord_system =
+        CoordSystemOption::from_str(&settings.coordinate_system).as_coordinate_system();
     let mut agent_config = AgentConfig::default()
         .with_lang(&settings.lang)
         .with_coordinate_system(coord_system)
@@ -940,10 +925,7 @@ async fn run_agent_task(settings: AppSettings, task: String) -> Result<String, S
     // Create and run agent
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
 
-    agent
-        .run(&task)
-        .await
-        .map_err(|e| e.to_string())
+    agent.run(&task).await.map_err(|e| e.to_string())
 }
 
 /// Run coordinate calibration.
@@ -956,7 +938,7 @@ async fn run_calibration(settings: AppSettings) -> Result<(f64, f64), String> {
         .with_retry_delay(settings.retry_delay);
 
     let calib_mode = CalibModeOption::from_str(&settings.calibration_mode).as_calibration_mode();
-    
+
     let mut calibration_config = CalibrationConfig::default()
         .with_mode(calib_mode)
         .with_lang(&settings.lang)

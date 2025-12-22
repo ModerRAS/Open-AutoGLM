@@ -28,7 +28,7 @@ impl Default for DualLoopConfig {
     fn default() -> Self {
         Self {
             planner_interval_ms: 2000, // 2 seconds
-            executor_interval_ms: 500,  // 0.5 seconds
+            executor_interval_ms: 500, // 0.5 seconds
             auto_start: true,
         }
     }
@@ -209,8 +209,10 @@ impl DualLoopRunner {
 
         // Spawn the main loop
         tokio::spawn(async move {
-            let mut planner_interval = interval(Duration::from_millis(self.config.planner_interval_ms));
-            let mut executor_interval = interval(Duration::from_millis(self.config.executor_interval_ms));
+            let mut planner_interval =
+                interval(Duration::from_millis(self.config.planner_interval_ms));
+            let mut executor_interval =
+                interval(Duration::from_millis(self.config.executor_interval_ms));
 
             loop {
                 // PRIORITY 1: Always check for user input first (non-blocking)
@@ -251,7 +253,7 @@ impl DualLoopRunner {
                     _ = executor_interval.tick() => {
                         if !self.paused.load(Ordering::SeqCst) {
                             let feedback = self.planner.tick_executor().await;
-                            
+
                             // Call feedback callback if set
                             if let Some(ref callback) = self.feedback_callback {
                                 callback(&feedback);
@@ -277,7 +279,7 @@ impl DualLoopRunner {
                     _ = planner_interval.tick() => {
                         if !self.paused.load(Ordering::SeqCst) {
                             let should_continue = self.planner.tick_planner().await;
-                            
+
                             if !should_continue && !self.planner.has_pending_input() {
                                 tracing::info!("Planner has no more work, waiting for input...");
                             }
@@ -311,7 +313,8 @@ impl DualLoopRunner {
         self.planner.start();
 
         let mut planner_interval = interval(Duration::from_millis(self.config.planner_interval_ms));
-        let mut executor_interval = interval(Duration::from_millis(self.config.executor_interval_ms));
+        let mut executor_interval =
+            interval(Duration::from_millis(self.config.executor_interval_ms));
 
         loop {
             tokio::select! {
@@ -319,7 +322,7 @@ impl DualLoopRunner {
                 _ = executor_interval.tick() => {
                     if !self.paused.load(Ordering::SeqCst) {
                         let feedback = self.planner.tick_executor().await;
-                        
+
                         if let Some(ref callback) = self.feedback_callback {
                             callback(&feedback);
                         }
@@ -330,7 +333,7 @@ impl DualLoopRunner {
                 _ = planner_interval.tick() => {
                     if !self.paused.load(Ordering::SeqCst) {
                         let should_continue = self.planner.tick_planner().await;
-                        
+
                         if !should_continue && !self.planner.has_pending_input() {
                             // All done
                             break;

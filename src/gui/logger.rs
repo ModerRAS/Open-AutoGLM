@@ -121,30 +121,30 @@ impl Logger {
     fn create_log_file() -> Option<PathBuf> {
         let logs_dir = AppSettings::logs_dir()?;
         fs::create_dir_all(&logs_dir).ok()?;
-        
+
         let timestamp = Local::now().format("%Y%m%d_%H%M%S");
         let path = logs_dir.join(format!("session_{}.log", timestamp));
-        
+
         // Create the file
         File::create(&path).ok()?;
-        
+
         Some(path)
     }
 
     /// Add a log entry.
     pub fn log(&mut self, level: LogLevel, message: impl Into<String>) {
         let entry = LogEntry::new(level, message);
-        
+
         // Write to file
         if let Some(ref path) = self.log_file {
             if let Ok(mut file) = OpenOptions::new().append(true).open(path) {
                 let _ = writeln!(file, "{}", entry.format_file());
             }
         }
-        
+
         // Add to memory
         self.entries.push(entry);
-        
+
         // Trim if too many entries
         if self.entries.len() > self.max_entries {
             self.entries.remove(0);

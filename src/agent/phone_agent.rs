@@ -3,7 +3,9 @@
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::actions::{parse_action, ActionHandler, ConfirmationCallback, CoordinateSystem, TakeoverCallback};
+use crate::actions::{
+    parse_action, ActionHandler, ConfirmationCallback, CoordinateSystem, TakeoverCallback,
+};
 use crate::adb::{get_current_app, get_screenshot};
 use crate::config::{
     get_messages, get_system_prompt, get_system_prompt_relative, get_system_prompt_with_resolution,
@@ -143,23 +145,25 @@ impl AgentConfig {
     /// Get the system prompt (custom or default based on language and coordinate system).
     /// This version doesn't include screen resolution information.
     pub fn get_system_prompt(&self) -> String {
-        self.system_prompt.clone().unwrap_or_else(|| {
-            match self.coordinate_system {
+        self.system_prompt
+            .clone()
+            .unwrap_or_else(|| match self.coordinate_system {
                 CoordinateSystem::Relative => get_system_prompt_relative(&self.lang),
                 CoordinateSystem::Absolute => get_system_prompt(&self.lang),
-            }
-        })
+            })
     }
 
     /// Get the system prompt with screen resolution information.
     /// This is the preferred method when screen dimensions are known.
     pub fn get_system_prompt_with_resolution(&self, width: u32, height: u32) -> String {
-        self.system_prompt.clone().unwrap_or_else(|| {
-            match self.coordinate_system {
+        self.system_prompt
+            .clone()
+            .unwrap_or_else(|| match self.coordinate_system {
                 CoordinateSystem::Relative => get_system_prompt_relative(&self.lang),
-                CoordinateSystem::Absolute => get_system_prompt_with_resolution(&self.lang, width, height),
-            }
-        })
+                CoordinateSystem::Absolute => {
+                    get_system_prompt_with_resolution(&self.lang, width, height)
+                }
+            })
     }
 }
 
@@ -330,7 +334,10 @@ impl PhoneAgent {
             let screen_info = MessageBuilder::build_screen_info(&current_app);
             // Include injected prompt if provided
             let text_content = if let Some(prompt) = user_prompt {
-                format!("** 用户补充指令 **\n{}\n\n** Screen Info **\n\n{}", prompt, screen_info)
+                format!(
+                    "** 用户补充指令 **\n{}\n\n** Screen Info **\n\n{}",
+                    prompt, screen_info
+                )
             } else {
                 format!("** Screen Info **\n\n{}", screen_info)
             };
@@ -370,15 +377,21 @@ impl PhoneAgent {
                 // This will prompt the model to continue/retry in the next step
                 // Safe truncation for UTF-8
                 let truncated_action = if response.action.chars().count() > 150 {
-                    format!("{}...", response.action.chars().take(150).collect::<String>())
+                    format!(
+                        "{}...",
+                        response.action.chars().take(150).collect::<String>()
+                    )
                 } else {
                     response.action.clone()
                 };
-                (serde_json::json!({
-                    "_metadata": "error",
-                    "error": "parse_failed",
-                    "message": format!("无法解析动作指令，请重新输出完整的 do(...) 或 finish(...) 指令。原始输出: {}", truncated_action)
-                }), true)
+                (
+                    serde_json::json!({
+                        "_metadata": "error",
+                        "error": "parse_failed",
+                        "message": format!("无法解析动作指令，请重新输出完整的 do(...) 或 finish(...) 指令。原始输出: {}", truncated_action)
+                    }),
+                    true,
+                )
             }
         };
 
@@ -411,7 +424,7 @@ impl PhoneAgent {
             // Add the incomplete assistant response to context
             self.context
                 .push(MessageBuilder::create_assistant_message(&response.action));
-            
+
             // Add a user message prompting the model to continue/retry
             self.context.push(MessageBuilder::create_user_message(
                 "你的回复不完整或格式不正确，没有包含有效的 do(...) 或 finish(...) 指令。请继续输出或重新输出完整的动作指令。",

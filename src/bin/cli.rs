@@ -3,12 +3,14 @@
 //! This is the CLI entry point for the phone-agent tool.
 //! Run with: cargo run --bin phone-agent
 
+use anyhow::anyhow;
 use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
 use phone_agent::model::ModelClient;
-use phone_agent::{AgentConfig, AppSettings, CoordinateSystem, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
+use phone_agent::{
+    AgentConfig, AppSettings, CoordinateSystem, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE,
+};
 use std::env;
 use std::io::{self, BufRead, Write};
-use anyhow::anyhow;
 
 /// Merge stored settings with environment overrides.
 fn load_settings_with_env() -> AppSettings {
@@ -197,8 +199,12 @@ fn run_config_wizard(mut settings: AppSettings) -> anyhow::Result<()> {
     settings.retry_delay = prompt_number("Retry delay (seconds)", settings.retry_delay)?;
     settings.max_steps = prompt_number("Max steps", settings.max_steps)?;
 
-    settings.enable_calibration = prompt_bool("Enable calibration? (y/n)", settings.enable_calibration)?;
-    let mode_input = prompt_with_default("Calibration mode (simple/complex)", &settings.calibration_mode)?;
+    settings.enable_calibration =
+        prompt_bool("Enable calibration? (y/n)", settings.enable_calibration)?;
+    let mode_input = prompt_with_default(
+        "Calibration mode (simple/complex)",
+        &settings.calibration_mode,
+    )?;
     settings.calibration_mode = if mode_input.to_lowercase() == "complex" {
         "complex".to_string()
     } else {
@@ -210,35 +216,30 @@ fn run_config_wizard(mut settings: AppSettings) -> anyhow::Result<()> {
     )?;
 
     println!("\nPlanner (dual-loop) settings");
-    settings.planner_base_url = prompt_with_default("Planner model base URL", &settings.planner_base_url)?;
-    settings.planner_api_key = prompt_with_default("Planner model API key", &settings.planner_api_key)?;
-    settings.planner_model_name = prompt_with_default("Planner model name", &settings.planner_model_name)?;
+    settings.planner_base_url =
+        prompt_with_default("Planner model base URL", &settings.planner_base_url)?;
+    settings.planner_api_key =
+        prompt_with_default("Planner model API key", &settings.planner_api_key)?;
+    settings.planner_model_name =
+        prompt_with_default("Planner model name", &settings.planner_model_name)?;
     settings.max_executor_feedback_history = prompt_number(
         "Max executor feedback history",
         settings.max_executor_feedback_history,
     )?;
     settings.stuck_threshold = prompt_number("Stuck threshold", settings.stuck_threshold)?;
-    settings.prompt_memory_path = prompt_with_default(
-        "Prompt memory path",
-        &settings.prompt_memory_path,
-    )?;
-    settings.planner_interval_ms = prompt_number(
-        "Planner interval (ms)",
-        settings.planner_interval_ms,
-    )?;
-    settings.executor_interval_ms = prompt_number(
-        "Executor interval (ms)",
-        settings.executor_interval_ms,
-    )?;
+    settings.prompt_memory_path =
+        prompt_with_default("Prompt memory path", &settings.prompt_memory_path)?;
+    settings.planner_interval_ms =
+        prompt_number("Planner interval (ms)", settings.planner_interval_ms)?;
+    settings.executor_interval_ms =
+        prompt_number("Executor interval (ms)", settings.executor_interval_ms)?;
 
     settings.dual_loop_mode = prompt_bool(
         "Enable dual-loop mode by default? (y/n)",
         settings.dual_loop_mode,
     )?;
 
-    settings
-        .save()
-        .map_err(|e| anyhow!(e))?;
+    settings.save().map_err(|e| anyhow!(e))?;
 
     println!("\n✅ Settings saved. They will be used by both CLI and GUI.");
     Ok(())
@@ -256,9 +257,10 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     // Allow running interactive setup before anything else
-    if args.iter().any(|arg| {
-        matches!(arg.as_str(), "config" | "--config" | "--setup" | "setup")
-    }) {
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "config" | "--config" | "--setup" | "setup"))
+    {
         run_config_wizard(AppSettings::load())?;
         return Ok(());
     }
@@ -278,8 +280,16 @@ async fn main() -> anyhow::Result<()> {
         CoordinateSystem::Absolute => DEFAULT_COORDINATE_SCALE,
     };
 
-    let mut scale_x = if settings.scale_x == 0.0 { default_scale } else { settings.scale_x };
-    let mut scale_y = if settings.scale_y == 0.0 { default_scale } else { settings.scale_y };
+    let mut scale_x = if settings.scale_x == 0.0 {
+        default_scale
+    } else {
+        settings.scale_x
+    };
+    let mut scale_y = if settings.scale_y == 0.0 {
+        default_scale
+    } else {
+        settings.scale_y
+    };
 
     // If coordinate system changed from stored value, reset to sensible defaults
     if coordinate_system == CoordinateSystem::Relative {
@@ -502,9 +512,7 @@ async fn run_dual_loop_mode(
     lang: String,
     settings: AppSettings,
 ) -> anyhow::Result<()> {
-    use phone_agent::{
-        DualLoopConfig, DualLoopRunner, PlannerAgent, PlannerConfig,
-    };
+    use phone_agent::{DualLoopConfig, DualLoopRunner, PlannerAgent, PlannerConfig};
 
     println!("\n🔄 Dual Loop Mode Enabled");
     println!("================================================\n");
@@ -520,11 +528,17 @@ async fn run_dual_loop_mode(
     let planner_interval: u64 = settings.planner_interval_ms;
     let executor_interval: u64 = settings.executor_interval_ms;
 
-    println!("Planner Model: {} @ {}", planner_model_name, planner_base_url);
+    println!(
+        "Planner Model: {} @ {}",
+        planner_model_name, planner_base_url
+    );
     println!("Feedback History: {} entries", max_feedback_history);
     println!("Stuck Threshold: {} consecutive", stuck_threshold);
     println!("Prompt Memory: {}", prompt_memory_path);
-    println!("Intervals: Planner={}ms, Executor={}ms", planner_interval, executor_interval);
+    println!(
+        "Intervals: Planner={}ms, Executor={}ms",
+        planner_interval, executor_interval
+    );
     println!("================================================\n");
 
     // Build planner config
@@ -541,11 +555,7 @@ async fn run_dual_loop_mode(
         .with_lang(&lang);
 
     // Create planner
-    let planner = PlannerAgent::new(
-        planner_config,
-        executor_model_config,
-        executor_agent_config,
-    );
+    let planner = PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
 
     // Create dual loop runner
     let loop_config = DualLoopConfig::default()
@@ -557,21 +567,25 @@ async fn run_dual_loop_mode(
     let last_status: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let last_status_clone = last_status.clone();
 
-    let runner = DualLoopRunner::new(planner, loop_config)
-        .with_feedback_callback(move |feedback| {
+    let runner =
+        DualLoopRunner::new(planner, loop_config).with_feedback_callback(move |feedback| {
             // Only print on status change
             let status_str = format!("{:?}", feedback.status);
             let mut last = last_status_clone.lock().unwrap();
-            
+
             if last.as_ref() != Some(&status_str) {
                 // Status changed, print it
-                if matches!(feedback.status, 
-                    phone_agent::ExecutorStatus::Completed | 
-                    phone_agent::ExecutorStatus::Failed(_) |
-                    phone_agent::ExecutorStatus::Stuck |
-                    phone_agent::ExecutorStatus::Running
+                if matches!(
+                    feedback.status,
+                    phone_agent::ExecutorStatus::Completed
+                        | phone_agent::ExecutorStatus::Failed(_)
+                        | phone_agent::ExecutorStatus::Stuck
+                        | phone_agent::ExecutorStatus::Running
                 ) {
-                    println!("📡 Executor: {:?} (step {})", feedback.status, feedback.step_count);
+                    println!(
+                        "📡 Executor: {:?} (step {})",
+                        feedback.status, feedback.step_count
+                    );
                 }
                 *last = Some(status_str);
             }

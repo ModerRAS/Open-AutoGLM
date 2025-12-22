@@ -79,13 +79,18 @@ impl PromptEntry {
     pub fn record_usage(&mut self, success: bool) {
         let current_successes = self.success_rate.unwrap_or(0.0) * self.usage_count as f32;
         self.usage_count += 1;
-        let new_successes = if success { current_successes + 1.0 } else { current_successes };
+        let new_successes = if success {
+            current_successes + 1.0
+        } else {
+            current_successes
+        };
         self.success_rate = Some(new_successes / self.usage_count as f32);
     }
 
     /// Add a user correction.
     pub fn add_correction(&mut self, content: impl Into<String>, context: Option<String>) {
-        self.corrections.push(CorrectionRecord::new(content, context));
+        self.corrections
+            .push(CorrectionRecord::new(content, context));
         self.last_updated = Utc::now().to_rfc3339();
     }
 
@@ -143,11 +148,10 @@ impl PromptMemory {
             return Ok(Self::new());
         }
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| PromptMemoryError::IoError(e.to_string()))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| PromptMemoryError::IoError(e.to_string()))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| PromptMemoryError::ParseError(e.to_string()))
+        serde_json::from_str(&content).map_err(|e| PromptMemoryError::ParseError(e.to_string()))
     }
 
     /// Save prompt memory to a JSON file.
@@ -156,15 +160,13 @@ impl PromptMemory {
 
         // Create parent directories if needed
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| PromptMemoryError::IoError(e.to_string()))?;
+            fs::create_dir_all(parent).map_err(|e| PromptMemoryError::IoError(e.to_string()))?;
         }
 
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| PromptMemoryError::SerializeError(e.to_string()))?;
 
-        fs::write(path, content)
-            .map_err(|e| PromptMemoryError::IoError(e.to_string()))
+        fs::write(path, content).map_err(|e| PromptMemoryError::IoError(e.to_string()))
     }
 
     /// Get a prompt by task type.
@@ -179,7 +181,9 @@ impl PromptMemory {
 
     /// Get the system prompt string for a task type.
     pub fn get_prompt(&self, task_type: &str) -> Option<&str> {
-        self.prompts.get(task_type).map(|e| e.system_prompt.as_str())
+        self.prompts
+            .get(task_type)
+            .map(|e| e.system_prompt.as_str())
     }
 
     /// Update or create a prompt for a task type.
@@ -223,10 +227,15 @@ impl PromptMemory {
 
     /// Add a correction for a task type.
     /// If the task type doesn't exist, creates a new entry with default prompt.
-    pub fn add_correction(&mut self, task_type: impl Into<String>, content: impl Into<String>, context: Option<String>) {
+    pub fn add_correction(
+        &mut self,
+        task_type: impl Into<String>,
+        content: impl Into<String>,
+        context: Option<String>,
+    ) {
         let task_type = task_type.into();
         let content = content.into();
-        
+
         if let Some(entry) = self.prompts.get_mut(&task_type) {
             entry.add_correction(content, context);
         } else {
@@ -239,7 +248,8 @@ impl PromptMemory {
 
     /// Get pending corrections count for a task type.
     pub fn pending_corrections(&self, task_type: &str) -> usize {
-        self.prompts.get(task_type)
+        self.prompts
+            .get(task_type)
             .map(|e| e.pending_corrections_count())
             .unwrap_or(0)
     }
@@ -292,9 +302,7 @@ impl PromptMemory {
     pub fn get_successful_prompts(&self, min_rate: f32) -> Vec<(&str, &PromptEntry)> {
         self.prompts
             .iter()
-            .filter(|(_, entry)| {
-                entry.success_rate.map(|r| r >= min_rate).unwrap_or(false)
-            })
+            .filter(|(_, entry)| entry.success_rate.map(|r| r >= min_rate).unwrap_or(false))
             .map(|(k, v)| (k.as_str(), v))
             .collect()
     }
@@ -306,27 +314,34 @@ impl PromptMemory {
             return "（暂无已保存的任务类型记忆）".to_string();
         }
 
-        let mut summaries: Vec<String> = self.prompts
+        let mut summaries: Vec<String> = self
+            .prompts
             .iter()
             .map(|(task_type, entry)| {
                 let prompt_preview = if entry.system_prompt.is_empty() {
                     "(无提示词，仅有纠偏记录)".to_string()
                 } else if entry.system_prompt.chars().count() > 50 {
-                    format!("{}...", entry.system_prompt.chars().take(50).collect::<String>())
+                    format!(
+                        "{}...",
+                        entry.system_prompt.chars().take(50).collect::<String>()
+                    )
                 } else {
                     entry.system_prompt.clone()
                 };
-                
+
                 let stats = format!(
                     "使用{}次{}",
                     entry.usage_count,
-                    entry.success_rate.map(|r| format!(", 成功率{:.0}%", r * 100.0)).unwrap_or_default()
+                    entry
+                        .success_rate
+                        .map(|r| format!(", 成功率{:.0}%", r * 100.0))
+                        .unwrap_or_default()
                 );
-                
+
                 format!("- **{}**: {} [{}]", task_type, prompt_preview, stats)
             })
             .collect();
-        
+
         summaries.sort(); // Alphabetical order
         summaries.join("\n")
     }
@@ -341,7 +356,7 @@ impl PromptMemory {
     /// This is a simple keyword-based matching; Planner can do better semantic matching.
     pub fn find_matching_task_type(&self, description: &str) -> Option<String> {
         let desc_lower = description.to_lowercase();
-        
+
         // Simple keyword matching - find task type whose name appears in description
         for task_type in self.prompts.keys() {
             let type_lower = task_type.to_lowercase();
@@ -356,7 +371,7 @@ impl PromptMemory {
                 }
             }
         }
-        
+
         None
     }
 
@@ -364,7 +379,9 @@ impl PromptMemory {
     /// If the task type exists, returns it; otherwise creates a new empty entry.
     pub fn ensure_task_type(&mut self, task_type: impl Into<String>) -> &mut PromptEntry {
         let task_type = task_type.into();
-        self.prompts.entry(task_type).or_insert_with(|| PromptEntry::new(""))
+        self.prompts
+            .entry(task_type)
+            .or_insert_with(|| PromptEntry::new(""))
     }
 }
 
@@ -424,11 +441,11 @@ mod tests {
     #[test]
     fn test_prompt_entry_usage() {
         let mut entry = PromptEntry::new("Test prompt");
-        
+
         entry.record_usage(true);
         assert_eq!(entry.usage_count, 1);
         assert_eq!(entry.success_rate, Some(1.0));
-        
+
         entry.record_usage(false);
         assert_eq!(entry.usage_count, 2);
         assert_eq!(entry.success_rate, Some(0.5));
@@ -437,18 +454,18 @@ mod tests {
     #[test]
     fn test_prompt_memory_crud() {
         let mut memory = PromptMemory::new();
-        
+
         // Create
         memory.update("test_type", "Test prompt");
         assert!(memory.contains("test_type"));
-        
+
         // Read
         assert_eq!(memory.get_prompt("test_type"), Some("Test prompt"));
-        
+
         // Update
         memory.update("test_type", "Updated prompt");
         assert_eq!(memory.get_prompt("test_type"), Some("Updated prompt"));
-        
+
         // Delete
         memory.remove("test_type");
         assert!(!memory.contains("test_type"));
@@ -459,19 +476,19 @@ mod tests {
         // Use temp directory from environment or current dir
         let temp_dir = env::temp_dir();
         let path = temp_dir.join("phone_agent_test_prompts.json");
-        
+
         // Create and save
         let mut memory = PromptMemory::new();
         memory.update("type_a", "Prompt A");
         memory.update("type_b", "Prompt B");
         memory.save(&path).unwrap();
-        
+
         // Load and verify
         let loaded = PromptMemory::load(&path).unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get_prompt("type_a"), Some("Prompt A"));
         assert_eq!(loaded.get_prompt("type_b"), Some("Prompt B"));
-        
+
         // Cleanup
         let _ = fs::remove_file(&path);
     }

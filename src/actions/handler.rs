@@ -315,8 +315,10 @@ impl ActionHandler {
                 }
 
                 // Convert relative (0-999) to absolute pixel coordinates
-                let abs_x = (raw_x as f64 / RELATIVE_COORDINATE_MAX * screen_width as f64).round() as i32;
-                let abs_y = (raw_y as f64 / RELATIVE_COORDINATE_MAX * screen_height as f64).round() as i32;
+                let abs_x =
+                    (raw_x as f64 / RELATIVE_COORDINATE_MAX * screen_width as f64).round() as i32;
+                let abs_y =
+                    (raw_y as f64 / RELATIVE_COORDINATE_MAX * screen_height as f64).round() as i32;
 
                 Ok((abs_x, abs_y))
             }
@@ -994,8 +996,8 @@ mod tests {
         let result = handler.convert_coordinates(&[500, 500], 1080, 1920);
         assert!(result.is_ok());
         let (x, y) = result.unwrap();
-        assert_eq!(x, 540);  // 500/1000 * 1080 = 540
-        assert_eq!(y, 960);  // 500/1000 * 1920 = 960
+        assert_eq!(x, 540); // 500/1000 * 1080 = 540
+        assert_eq!(y, 960); // 500/1000 * 1920 = 960
 
         // Top-left corner: (0, 0)
         let result = handler.convert_coordinates(&[0, 0], 1080, 1920);

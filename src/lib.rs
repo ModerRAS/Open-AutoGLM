@@ -101,12 +101,10 @@ pub use agent::{AgentConfig, AgentError, PhoneAgent, StepResult};
 
 // Dual loop exports (new)
 pub use agent::{
-    DualLoopBuilder, DualLoopConfig, DualLoopError, DualLoopHandle, DualLoopRunner,
-    ExecutorCommand, ExecutorFeedback, ExecutorStatus, ExecutorWrapper,
-    PlannerAction, PlannerAgent, PlannerConfig,
-    PromptEntry, PromptMemory, PromptMemoryError,
+    create_default_prompt_memory, DualLoopBuilder, DualLoopConfig, DualLoopError, DualLoopHandle,
+    DualLoopRunner, ExecutorCommand, ExecutorFeedback, ExecutorStatus, ExecutorWrapper,
+    PlannerAction, PlannerAgent, PlannerConfig, PromptEntry, PromptMemory, PromptMemoryError,
     TodoItem, TodoList, TodoStats, TodoStatus,
-    create_default_prompt_memory,
 };
 
 pub use calibration::{

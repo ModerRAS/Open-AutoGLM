@@ -143,8 +143,7 @@ impl AppSettings {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-        fs::write(&path, content)
-            .map_err(|e| format!("Failed to write settings file: {}", e))?;
+        fs::write(&path, content).map_err(|e| format!("Failed to write settings file: {}", e))?;
 
         Ok(())
     }

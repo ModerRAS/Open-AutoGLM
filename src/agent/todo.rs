@@ -55,7 +55,11 @@ pub struct TodoItem {
 
 impl TodoItem {
     /// Create a new todo item.
-    pub fn new(id: impl Into<String>, description: impl Into<String>, task_type: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        description: impl Into<String>,
+        task_type: impl Into<String>,
+    ) -> Self {
         let now = current_timestamp();
         Self {
             id: id.into(),
@@ -163,7 +167,12 @@ impl TodoList {
 
     /// Add a task with specific ID.
     /// Returns the ID of the newly created task.
-    pub fn add_with_id(&mut self, id: impl Into<String>, description: impl Into<String>, task_type: impl Into<String>) -> String {
+    pub fn add_with_id(
+        &mut self,
+        id: impl Into<String>,
+        description: impl Into<String>,
+        task_type: impl Into<String>,
+    ) -> String {
         let id_str = id.into();
         let item = TodoItem::new(id_str.clone(), description, task_type);
         self.items.push(item);
@@ -187,19 +196,26 @@ impl TodoList {
 
     /// Get the next pending task.
     pub fn next_pending(&self) -> Option<&TodoItem> {
-        self.items.iter().find(|item| item.status == TodoStatus::Pending)
+        self.items
+            .iter()
+            .find(|item| item.status == TodoStatus::Pending)
     }
 
     /// Get the currently running task.
     pub fn current_running(&self) -> Option<&TodoItem> {
-        self.items.iter().find(|item| item.status == TodoStatus::Running)
+        self.items
+            .iter()
+            .find(|item| item.status == TodoStatus::Running)
     }
 
     /// Get the last completed (or most recent done) task.
     /// Useful for finding context when executor is in Completed state.
     pub fn last_completed(&self) -> Option<&TodoItem> {
         // Return the last task that is Done (most recently completed)
-        self.items.iter().rev().find(|item| item.status == TodoStatus::Done)
+        self.items
+            .iter()
+            .rev()
+            .find(|item| item.status == TodoStatus::Done)
     }
 
     /// Get the last active task (running, or most recent done/failed).
@@ -207,22 +223,36 @@ impl TodoList {
     pub fn last_active(&self) -> Option<&TodoItem> {
         self.current_running()
             .or_else(|| self.last_completed())
-            .or_else(|| self.items.iter().rev().find(|item| item.status == TodoStatus::Failed))
+            .or_else(|| {
+                self.items
+                    .iter()
+                    .rev()
+                    .find(|item| item.status == TodoStatus::Failed)
+            })
     }
 
     /// Get all pending tasks.
     pub fn pending_tasks(&self) -> Vec<&TodoItem> {
-        self.items.iter().filter(|item| item.status == TodoStatus::Pending).collect()
+        self.items
+            .iter()
+            .filter(|item| item.status == TodoStatus::Pending)
+            .collect()
     }
 
     /// Get all completed tasks.
     pub fn completed_tasks(&self) -> Vec<&TodoItem> {
-        self.items.iter().filter(|item| item.status == TodoStatus::Done).collect()
+        self.items
+            .iter()
+            .filter(|item| item.status == TodoStatus::Done)
+            .collect()
     }
 
     /// Get all failed tasks.
     pub fn failed_tasks(&self) -> Vec<&TodoItem> {
-        self.items.iter().filter(|item| item.status == TodoStatus::Failed).collect()
+        self.items
+            .iter()
+            .filter(|item| item.status == TodoStatus::Failed)
+            .collect()
     }
 
     /// Remove a task by ID.
@@ -328,17 +358,17 @@ mod tests {
     #[test]
     fn test_todo_item_retry() {
         let mut item = TodoItem::new("test_1", "Test task", "general").with_max_retries(2);
-        
+
         item.fail("Error 1");
         assert_eq!(item.status, TodoStatus::Failed);
-        
+
         assert!(item.retry()); // 1st retry
         assert_eq!(item.status, TodoStatus::Pending);
-        
+
         item.fail("Error 2");
         assert!(item.retry()); // 2nd retry
         assert_eq!(item.status, TodoStatus::Pending);
-        
+
         item.fail("Error 3");
         assert!(!item.retry()); // No more retries
         assert_eq!(item.status, TodoStatus::Failed);
@@ -348,7 +378,7 @@ mod tests {
     #[test]
     fn test_todo_list_operations() {
         let mut list = TodoList::new();
-        
+
         list.add("Task 1", "type_a");
         list.add("Task 2", "type_b");
         list.add("Task 3", "type_a");

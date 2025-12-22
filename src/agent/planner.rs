@@ -262,38 +262,25 @@ pub enum PlannerAction {
         task_type: String,
     },
     /// Start the executor on a task.
-    StartExecutor {
-        task_id: String,
-    },
+    StartExecutor { task_id: String },
     /// Pause the executor.
     PauseExecutor,
     /// Resume the executor.
     ResumeExecutor,
     /// Inject a prompt into executor.
-    InjectPrompt {
-        content: String,
-    },
+    InjectPrompt { content: String },
     /// Reset executor context.
     ResetExecutor,
     /// Mark a todo as complete.
-    CompleteTodo {
-        task_id: String,
-    },
+    CompleteTodo { task_id: String },
     /// Mark a todo as failed.
-    FailTodo {
-        task_id: String,
-        reason: String,
-    },
+    FailTodo { task_id: String, reason: String },
     /// Report to user (no action, just message).
-    Report {
-        message: String,
-    },
+    Report { message: String },
     /// Wait for more information.
     Wait,
     /// Task planning complete.
-    Done {
-        message: String,
-    },
+    Done { message: String },
 }
 
 /// Planner agent for the outer loop.
@@ -344,11 +331,9 @@ impl PlannerAgent {
             .and_then(|path| PromptMemory::load(path).ok())
             .unwrap_or_default();
 
-        let executor = ExecutorWrapper::new(
-            executor_model_config.clone(),
-            executor_agent_config.clone(),
-        )
-        .with_stuck_threshold(planner_config.stuck_threshold);
+        let executor =
+            ExecutorWrapper::new(executor_model_config.clone(), executor_agent_config.clone())
+                .with_stuck_threshold(planner_config.stuck_threshold);
 
         Self {
             model_client,
@@ -413,18 +398,19 @@ impl PlannerAgent {
     /// Initialize planner context with system prompt and available task types.
     fn initialize_context(&mut self) {
         self.context.clear();
-        
+
         // Build system prompt with available task types
         let base_prompt = self.config.get_system_prompt();
         let task_types_summary = self.prompt_memory.get_task_types_summary();
-        
+
         let full_prompt = format!(
             "{}\n\n## 已保存的任务类型记忆\n\n以下是系统已学习的任务类型，优先使用这些类型以便复用记忆：\n\n{}\n\n你也可以创建新的任务类型，系统会自动学习。",
             base_prompt,
             task_types_summary
         );
-        
-        self.context.push(MessageBuilder::create_system_message(&full_prompt));
+
+        self.context
+            .push(MessageBuilder::create_system_message(&full_prompt));
     }
 
     /// Refresh the system context with updated task types.
@@ -434,13 +420,13 @@ impl PlannerAgent {
             // Update the system message (first message)
             let base_prompt = self.config.get_system_prompt();
             let task_types_summary = self.prompt_memory.get_task_types_summary();
-            
+
             let full_prompt = format!(
                 "{}\n\n## 已保存的任务类型记忆\n\n以下是系统已学习的任务类型，优先使用这些类型以便复用记忆：\n\n{}\n\n你也可以创建新的任务类型，系统会自动学习。",
                 base_prompt,
                 task_types_summary
             );
-            
+
             self.context[0] = MessageBuilder::create_system_message(&full_prompt);
         }
     }
@@ -482,13 +468,14 @@ impl PlannerAgent {
             // Build executor status to include with user input
             let executor_status_summary = self.build_executor_status_summary();
             let todo_summary = self.build_todo_summary();
-            
+
             // Add user message along with current executor state
             let enriched_input = format!(
                 "[用户输入]\n{}\n\n[当前执行器状态]\n{}\n\n[当前任务列表]\n{}",
                 input, executor_status_summary, todo_summary
             );
-            self.context.push(MessageBuilder::create_user_message(&enriched_input, None));
+            self.context
+                .push(MessageBuilder::create_user_message(&enriched_input, None));
 
             // Continue conversation until planner stops adding tasks or starts executor
             self.continue_planner_conversation().await;
@@ -519,16 +506,16 @@ impl PlannerAgent {
                     // Execute the parsed action
                     if let Some(action) = action {
                         println!("📋 [Action]: {:?}", action);
-                        
+
                         // Check if this is a terminal action that should stop the loop
                         let should_continue = self.should_continue_after_action(&action);
-                        
+
                         self.execute_planner_action(action).await;
-                        
+
                         if !should_continue {
                             break;
                         }
-                        
+
                         // After executing action, prompt the model to continue
                         // (The feedback was already added in execute_planner_action)
                     } else {
@@ -571,7 +558,8 @@ impl PlannerAgent {
                 let response_text = response.raw_content.clone();
 
                 // Add assistant response to context
-                self.context.push(MessageBuilder::create_assistant_message(&response.action));
+                self.context
+                    .push(MessageBuilder::create_assistant_message(&response.action));
 
                 // Parse action from response
                 let action = self.parse_planner_action(&response.action);
@@ -589,7 +577,12 @@ impl PlannerAgent {
     async fn supervise_executor(&mut self) {
         // Check latest executor feedback - clone to avoid borrow issues
         let feedback_info = self.executor_feedback_history.back().map(|f| {
-            (f.status.clone(), f.context_overflow_detected, f.consecutive_parse_errors, f.clone())
+            (
+                f.status.clone(),
+                f.context_overflow_detected,
+                f.consecutive_parse_errors,
+                f.clone(),
+            )
         });
 
         if let Some((status, context_overflow, parse_errors, _feedback)) = feedback_info {
@@ -619,14 +612,21 @@ impl PlannerAgent {
 
     /// Handle context overflow (too many parse errors).
     async fn handle_context_overflow(&mut self, parse_errors: u32) {
-        println!("⚠️ [System] 检测到执行器上下文溢出 (连续 {} 次解析错误)", parse_errors);
+        println!(
+            "⚠️ [System] 检测到执行器上下文溢出 (连续 {} 次解析错误)",
+            parse_errors
+        );
         println!("   🔄 自动重置执行器上下文并重试当前任务...");
-        tracing::error!("Context overflow detected: {} consecutive parse errors", parse_errors);
+        tracing::error!(
+            "Context overflow detected: {} consecutive parse errors",
+            parse_errors
+        );
 
         // Get current task info before reset
-        let current_task_info = self.todo_list.current_running().map(|t| {
-            (t.id.clone(), t.description.clone(), t.task_type.clone())
-        });
+        let current_task_info = self
+            .todo_list
+            .current_running()
+            .map(|t| (t.id.clone(), t.description.clone(), t.task_type.clone()));
 
         // Reset executor context
         self.executor.enqueue(ExecutorCommand::ResetContext);
@@ -634,10 +634,10 @@ impl PlannerAgent {
         // If there's a current task, restart it
         if let Some((task_id, task_desc, _task_type)) = current_task_info {
             println!("   📋 重新启动任务: {} - {}", task_id, task_desc);
-            
+
             // Small delay to let reset take effect
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
+
             // Restart the task
             self.start_task(&task_id);
         } else {
@@ -762,7 +762,10 @@ impl PlannerAgent {
             task.start();
 
             // Get system prompt from memory if available
-            let system_prompt = self.prompt_memory.get_prompt(&task.task_type).map(|s| s.to_string());
+            let system_prompt = self
+                .prompt_memory
+                .get_prompt(&task.task_type)
+                .map(|s| s.to_string());
 
             self.executor.enqueue(ExecutorCommand::StartTask {
                 task_id: task.id.clone(),
@@ -869,7 +872,9 @@ impl PlannerAgent {
             _ => return,
         };
 
-        let current_prompt = self.prompt_memory.get_prompt(task_type)
+        let current_prompt = self
+            .prompt_memory
+            .get_prompt(task_type)
             .unwrap_or("")
             .to_string();
 
@@ -883,7 +888,11 @@ impl PlannerAgent {
                 确保新的提示词简洁明了，能够帮助执行器在未来避免同样的错误。\n\
                 只输出优化后的提示词内容，不要其他解释。",
                 task_type,
-                if current_prompt.is_empty() { "(无)" } else { &current_prompt },
+                if current_prompt.is_empty() {
+                    "(无)"
+                } else {
+                    &current_prompt
+                },
                 corrections_summary
             )
         } else {
@@ -894,7 +903,11 @@ impl PlannerAgent {
                 Ensure the new prompt is concise and helps the executor avoid similar mistakes.\n\
                 Only output the optimized prompt content, no explanations.",
                 task_type,
-                if current_prompt.is_empty() { "(none)" } else { &current_prompt },
+                if current_prompt.is_empty() {
+                    "(none)"
+                } else {
+                    &current_prompt
+                },
                 corrections_summary
             )
         };
@@ -910,26 +923,29 @@ impl PlannerAgent {
             if !optimized_prompt.is_empty() {
                 // Update the prompt
                 self.prompt_memory.update(task_type, &optimized_prompt);
-                
+
                 // Clear corrections after consolidation
                 if let Some(entry) = self.prompt_memory.get_mut(task_type) {
                     entry.clear_corrections();
                 }
-                
+
                 if let Some(path) = &self.config.prompt_memory_path {
                     let _ = self.prompt_memory.save(path);
                 }
-                
+
                 println!("✅ [System] 已整合用户纠偏到记忆: {}", task_type);
                 // Safe truncation for display (handle UTF-8 properly)
                 let display_prompt = if optimized_prompt.chars().count() > 80 {
-                    format!("{}...", optimized_prompt.chars().take(80).collect::<String>())
+                    format!(
+                        "{}...",
+                        optimized_prompt.chars().take(80).collect::<String>()
+                    )
                 } else {
                     optimized_prompt.clone()
                 };
                 println!("📝 新提示词: {}", display_prompt);
                 tracing::info!("Consolidated corrections for task type: {}", task_type);
-                
+
                 // Refresh context so Planner knows about updated task types
                 self.refresh_context_with_task_types();
             }
@@ -957,7 +973,8 @@ impl PlannerAgent {
         );
 
         // Add as a system message update
-        self.context.push(MessageBuilder::create_user_message(&context_update, None));
+        self.context
+            .push(MessageBuilder::create_user_message(&context_update, None));
 
         // Call planner model
         match self.model_client.request(&self.context).await {
@@ -968,7 +985,8 @@ impl PlannerAgent {
                 println!();
 
                 // Add assistant response to context
-                self.context.push(MessageBuilder::create_assistant_message(&response.action));
+                self.context
+                    .push(MessageBuilder::create_assistant_message(&response.action));
 
                 // Parse action from response
                 self.parse_planner_action(&response.action)
@@ -986,10 +1004,7 @@ impl PlannerAgent {
         let status = self.executor.status();
         let step_count = self.executor.step_count();
 
-        let mut summary = format!(
-            "Executor状态: {:?}\n步骤数: {}\n",
-            status, step_count
-        );
+        let mut summary = format!("Executor状态: {:?}\n步骤数: {}\n", status, step_count);
 
         // Add recent feedback with full details
         if !self.executor_feedback_history.is_empty() {
@@ -999,25 +1014,29 @@ impl PlannerAgent {
                     "\n--- 第{}条反馈 (step={}, 屏幕变化={}) ---\n",
                     i + 1,
                     feedback.step_count,
-                    if feedback.screen_changed { "是" } else { "否" }
+                    if feedback.screen_changed {
+                        "是"
+                    } else {
+                        "否"
+                    }
                 ));
-                
+
                 if let Some(ref result) = feedback.last_result {
                     // Include thinking (执行器的思考过程)
                     if !result.thinking.is_empty() {
                         summary.push_str(&format!("💭 思考过程:\n{}\n", result.thinking));
                     }
-                    
+
                     // Include action type
                     if let Some(ref action_type) = result.action_type {
                         summary.push_str(&format!("🎯 执行动作: {}\n", action_type));
                     }
-                    
+
                     // Include message if any
                     if let Some(ref msg) = result.message {
                         summary.push_str(&format!("💬 消息: {}\n", msg));
                     }
-                    
+
                     // Include success/finished status
                     summary.push_str(&format!(
                         "状态: success={}, finished={}\n",
@@ -1099,17 +1118,17 @@ impl PlannerAgent {
     fn extract_first_json_object(&self, text: &str) -> Option<String> {
         let start = text.find('{')?;
         let chars: Vec<char> = text[start..].chars().collect();
-        
+
         let mut brace_count = 0;
         let mut in_string = false;
         let mut escape_next = false;
-        
+
         for (i, ch) in chars.iter().enumerate() {
             if escape_next {
                 escape_next = false;
                 continue;
             }
-            
+
             match ch {
                 '\\' if in_string => {
                     escape_next = true;
@@ -1130,7 +1149,7 @@ impl PlannerAgent {
                 _ => {}
             }
         }
-        
+
         None
     }
 
@@ -1169,11 +1188,22 @@ impl PlannerAgent {
     /// Execute a planner action.
     async fn execute_planner_action(&mut self, action: PlannerAction) {
         match action {
-            PlannerAction::AddTodo { description, task_type } => {
+            PlannerAction::AddTodo {
+                description,
+                task_type,
+            } => {
                 let task_id = self.todo_list.add(&description, &task_type);
-                println!("✅ [System] 已添加任务: {} (ID: {}, 类型: {})", description, task_id, task_type);
-                tracing::info!("Added todo: {} (id: {}, type: {})", description, task_id, task_type);
-                
+                println!(
+                    "✅ [System] 已添加任务: {} (ID: {}, 类型: {})",
+                    description, task_id, task_type
+                );
+                tracing::info!(
+                    "Added todo: {} (id: {}, type: {})",
+                    description,
+                    task_id,
+                    task_type
+                );
+
                 // Add system feedback with clear next step instructions
                 let feedback = format!(
                     "[系统反馈] 任务已添加成功。\n\
@@ -1183,21 +1213,26 @@ impl PlannerAgent {
                     当前任务列表:\n{}\n\n\
                     请继续: 如果还有更多子任务，请继续使用 add_todo 添加。\
                     如果任务列表已完整，请使用 start_executor 启动执行第一个任务。",
-                    task_id, description, task_type, self.build_todo_summary()
+                    task_id,
+                    description,
+                    task_type,
+                    self.build_todo_summary()
                 );
-                self.context.push(MessageBuilder::create_user_message(&feedback, None));
+                self.context
+                    .push(MessageBuilder::create_user_message(&feedback, None));
             }
             PlannerAction::StartExecutor { task_id } => {
                 println!("🚀 [System] 启动执行器，任务ID: {}", task_id);
                 self.start_task(&task_id);
-                
+
                 // Add system feedback
                 let feedback = format!(
                     "[系统反馈] 执行器已启动，正在执行任务: {}\n\
                     执行器将自动运行，完成后会自动执行下一个任务。",
                     task_id
                 );
-                self.context.push(MessageBuilder::create_user_message(&feedback, None));
+                self.context
+                    .push(MessageBuilder::create_user_message(&feedback, None));
             }
             PlannerAction::PauseExecutor => {
                 println!("⏸️ [System] 暂停执行器");
@@ -1210,38 +1245,51 @@ impl PlannerAgent {
             PlannerAction::InjectPrompt { content } => {
                 // Check executor status and provide appropriate feedback
                 let executor_status = self.executor.status().clone();
-                let was_stopped = matches!(executor_status, ExecutorStatus::Completed | ExecutorStatus::Idle);
-                
+                let was_stopped = matches!(
+                    executor_status,
+                    ExecutorStatus::Completed | ExecutorStatus::Idle
+                );
+
                 if was_stopped {
                     println!("💉 [System] 注入提示词并唤醒执行器: {}", content);
-                    println!("   ℹ️  执行器之前状态: {:?}, 现在将继续执行", executor_status);
+                    println!(
+                        "   ℹ️  执行器之前状态: {:?}, 现在将继续执行",
+                        executor_status
+                    );
                 } else {
                     println!("💉 [System] 注入提示词: {}", content);
                 }
-                
+
                 // Auto-learn: record this correction for the current task type
                 // Look for the most recently active task if no running task
-                let task_info = self.todo_list.current_running()
+                let task_info = self
+                    .todo_list
+                    .current_running()
                     .or_else(|| self.todo_list.last_completed())
                     .map(|t| (t.task_type.clone(), t.id.clone(), t.description.clone()));
-                
+
                 if let Some((task_type, task_id, task_desc)) = task_info {
                     let context = Some(format!("任务: {} - {}", task_id, task_desc));
-                    self.prompt_memory.add_correction(&task_type, &content, context);
-                    
+                    self.prompt_memory
+                        .add_correction(&task_type, &content, context);
+
                     // Check if we should consolidate corrections
                     let correction_count = self.prompt_memory.pending_corrections(&task_type);
                     if correction_count >= 3 {
-                        println!("📚 [System] 检测到 {} 条纠偏记录，将自动整合到记忆中...", correction_count);
+                        println!(
+                            "📚 [System] 检测到 {} 条纠偏记录，将自动整合到记忆中...",
+                            correction_count
+                        );
                         // Schedule consolidation (will be done async)
-                        self.pending_consolidation_task_types.push(task_type.clone());
+                        self.pending_consolidation_task_types
+                            .push(task_type.clone());
                     }
-                    
+
                     // Save memory
                     if let Some(path) = &self.config.prompt_memory_path {
                         let _ = self.prompt_memory.save(path);
                     }
-                    
+
                     // If executor was stopped, re-mark the task as running
                     if was_stopped {
                         if let Some(task) = self.todo_list.get_mut(&task_id) {
@@ -1249,8 +1297,9 @@ impl PlannerAgent {
                         }
                     }
                 }
-                
-                self.executor.enqueue(ExecutorCommand::InjectPrompt { content });
+
+                self.executor
+                    .enqueue(ExecutorCommand::InjectPrompt { content });
             }
             PlannerAction::ResetExecutor => {
                 println!("🔄 [System] 重置执行器");
@@ -1351,7 +1400,8 @@ mod tests {
         let planner_config = PlannerConfig::default();
         let executor_model_config = ModelConfig::default();
         let executor_agent_config = AgentConfig::default();
-        let planner = PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
 
         let json = r#"{"action": "add_todo", "description": "Test task", "task_type": "general"}"#;
         let action = planner.parse_planner_action(json);

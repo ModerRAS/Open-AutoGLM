@@ -88,7 +88,10 @@ pub fn get_system_prompt_zh_relative() -> String {
         weekday
     );
 
-    format!("今天的日期是: {}\n{}", formatted_date, SYSTEM_PROMPT_ZH_RELATIVE)
+    format!(
+        "今天的日期是: {}\n{}",
+        formatted_date, SYSTEM_PROMPT_ZH_RELATIVE
+    )
 }
 
 /// Get the English system prompt with relative coordinates (0-999 range).
@@ -97,7 +100,10 @@ pub fn get_system_prompt_en_relative() -> String {
     let today = Local::now();
     let formatted_date = today.format("%B %d, %Y").to_string();
 
-    format!("Today's date is: {}\n{}", formatted_date, SYSTEM_PROMPT_EN_RELATIVE)
+    format!(
+        "Today's date is: {}\n{}",
+        formatted_date, SYSTEM_PROMPT_EN_RELATIVE
+    )
 }
 
 /// Get the system prompt with relative coordinates by language.

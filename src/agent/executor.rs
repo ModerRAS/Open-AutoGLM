@@ -3,17 +3,17 @@
 //! This module wraps the PhoneAgent to provide external control interfaces
 //! for the dual-loop architecture.
 
-use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::VecDeque;
 use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use directories::ProjectDirs;
 
 use super::phone_agent::{AgentConfig, PhoneAgent, StepResult};
 use crate::model::ModelConfig;
@@ -423,17 +423,16 @@ impl ExecutorWrapper {
     fn reset_context_on_error(&mut self) {
         self.inner.reset();
         self.stuck_count = 0;
-        self.pending_prompt = Some(
-            "请严格输出 do(...) 或 finish(...)，不要重复总结，直接给动作指令。".to_string(),
-        );
+        self.pending_prompt =
+            Some("请严格输出 do(...) 或 finish(...)，不要重复总结，直接给动作指令。".to_string());
         self.consecutive_parse_errors = 0;
         tracing::info!("Executor context reset due to parse error");
     }
 
     /// Append a slim context snapshot to a log file for debugging.
     fn log_context_snapshot(&self, result: Option<&StepResult>, context_overflow: bool) {
-        let dirs: Option<PathBuf> = ProjectDirs::from("com", "moderras", "phone-agent")
-            .map(|d| d.data_dir().join("logs"));
+        let dirs: Option<PathBuf> =
+            ProjectDirs::from("com", "moderras", "phone-agent").map(|d| d.data_dir().join("logs"));
 
         let Some(dir) = dirs else { return }; // no directory available
         if std::fs::create_dir_all(&dir).is_err() {
@@ -451,7 +450,8 @@ impl ExecutorWrapper {
             .map(|msg| Self::summarize_message(msg))
             .collect();
 
-        let action_summary = result.and_then(|r| r.action.as_ref().map(|a| Self::summarize_message(a)));
+        let action_summary =
+            result.and_then(|r| r.action.as_ref().map(|a| Self::summarize_message(a)));
         let thinking = result.map(|r| Self::shorten(&r.thinking));
         let message = result.and_then(|r| r.message.clone());
 
@@ -478,10 +478,7 @@ impl ExecutorWrapper {
 
     fn summarize_message(val: &Value) -> String {
         if let Some(obj) = val.as_object() {
-            let role = obj
-                .get("role")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let role = obj.get("role").and_then(|v| v.as_str()).unwrap_or("");
 
             let content = obj.get("content");
 
