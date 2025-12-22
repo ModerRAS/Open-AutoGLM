@@ -351,15 +351,28 @@ async fn run_dual_loop_mode(
         .with_planner_interval(planner_interval)
         .with_executor_interval(executor_interval);
 
+    // Track last status to avoid duplicate prints
+    use std::sync::{Arc, Mutex};
+    let last_status: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let last_status_clone = last_status.clone();
+
     let runner = DualLoopRunner::new(planner, loop_config)
-        .with_feedback_callback(|feedback| {
-            // Log feedback (optional verbose output)
-            if matches!(feedback.status, 
-                phone_agent::ExecutorStatus::Completed | 
-                phone_agent::ExecutorStatus::Failed(_) |
-                phone_agent::ExecutorStatus::Stuck
-            ) {
-                println!("📡 Executor: {:?} (step {})", feedback.status, feedback.step_count);
+        .with_feedback_callback(move |feedback| {
+            // Only print on status change
+            let status_str = format!("{:?}", feedback.status);
+            let mut last = last_status_clone.lock().unwrap();
+            
+            if last.as_ref() != Some(&status_str) {
+                // Status changed, print it
+                if matches!(feedback.status, 
+                    phone_agent::ExecutorStatus::Completed | 
+                    phone_agent::ExecutorStatus::Failed(_) |
+                    phone_agent::ExecutorStatus::Stuck |
+                    phone_agent::ExecutorStatus::Running
+                ) {
+                    println!("📡 Executor: {:?} (step {})", feedback.status, feedback.step_count);
+                }
+                *last = Some(status_str);
             }
         });
 
