@@ -84,3 +84,6 @@ debug/
 # Environment
 .env
 .env.local
+
+# Memory files
+prompt_memory.json
