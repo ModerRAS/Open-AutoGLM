@@ -92,6 +92,7 @@ pub mod calibration;
 pub mod config;
 pub mod gui;
 pub mod model;
+pub mod settings;
 
 pub use actions::{CoordinateSystem, DEFAULT_COORDINATE_SCALE, RELATIVE_COORDINATE_MAX};
 
@@ -112,3 +113,4 @@ pub use calibration::{
     CalibrationConfig, CalibrationMode, CalibrationResult, CoordinateCalibrator,
 };
 pub use model::{ModelClient, ModelConfig, ModelResponse};
+pub use settings::AppSettings;

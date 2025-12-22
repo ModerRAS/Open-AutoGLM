@@ -4,10 +4,180 @@
 //! Run with: cargo run --bin phone-agent
 
 use phone_agent::calibration::{CalibrationConfig, CalibrationMode, CoordinateCalibrator};
-use phone_agent::model::{ModelClient, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS};
-use phone_agent::{AgentConfig, CoordinateSystem, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
+use phone_agent::model::ModelClient;
+use phone_agent::{AgentConfig, AppSettings, CoordinateSystem, ModelConfig, PhoneAgent, DEFAULT_COORDINATE_SCALE};
 use std::env;
 use std::io::{self, BufRead, Write};
+use anyhow::anyhow;
+
+/// Merge stored settings with environment overrides.
+fn load_settings_with_env() -> AppSettings {
+    let mut settings = AppSettings::load();
+
+    if let Ok(v) = env::var("MODEL_BASE_URL") {
+        settings.base_url = v;
+    }
+    if let Ok(v) = env::var("MODEL_API_KEY") {
+        settings.api_key = v;
+    }
+    if let Ok(v) = env::var("MODEL_NAME") {
+        settings.model_name = v;
+    }
+    if let Ok(v) = env::var("ADB_DEVICE_ID") {
+        settings.device_id = v;
+    }
+    if let Ok(v) = env::var("AGENT_LANG") {
+        settings.lang = v;
+    }
+    if let Ok(v) = env::var("COORDINATE_SYSTEM") {
+        settings.coordinate_system = v;
+    }
+
+    // Numbers with fallbacks to current settings value
+    if let Ok(v) = env::var("MODEL_MAX_RETRIES") {
+        if let Ok(parsed) = v.parse() {
+            settings.max_retries = parsed;
+        }
+    }
+    if let Ok(v) = env::var("MODEL_RETRY_DELAY") {
+        if let Ok(parsed) = v.parse() {
+            settings.retry_delay = parsed;
+        }
+    }
+    if let Ok(v) = env::var("MAX_STEPS") {
+        if let Ok(parsed) = v.parse() {
+            settings.max_steps = parsed;
+        }
+    }
+    if let Ok(v) = env::var("COORDINATE_SCALE_X") {
+        if let Ok(parsed) = v.parse() {
+            settings.scale_x = parsed;
+        }
+    }
+    if let Ok(v) = env::var("COORDINATE_SCALE_Y") {
+        if let Ok(parsed) = v.parse() {
+            settings.scale_y = parsed;
+        }
+    }
+
+    // Unified scale overrides individual values
+    if let Ok(v) = env::var("COORDINATE_SCALE") {
+        if let Ok(parsed) = v.parse() {
+            settings.scale_x = parsed;
+            settings.scale_y = parsed;
+        }
+    }
+
+    if let Ok(v) = env::var("ENABLE_CALIBRATION") {
+        settings.enable_calibration = v == "1" || v.to_lowercase() == "true";
+    }
+    if let Ok(v) = env::var("CALIBRATION_MODE") {
+        settings.calibration_mode = v;
+    }
+    if let Ok(v) = env::var("CALIBRATION_COMPLEX_ROUNDS") {
+        if let Ok(parsed) = v.parse() {
+            settings.calibration_rounds = parsed;
+        }
+    }
+
+    settings
+}
+
+fn prompt_with_default(label: &str, default: &str) -> anyhow::Result<String> {
+    print!("{} [{}]: ", label, default);
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input)?;
+    let value = input.trim();
+    if value.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+fn prompt_bool(label: &str, default: bool) -> anyhow::Result<bool> {
+    let default_str = if default { "y" } else { "n" };
+    let input = prompt_with_default(label, default_str)?;
+    let normalized = input.to_lowercase();
+    Ok(matches!(normalized.as_str(), "y" | "yes" | "true" | "1"))
+}
+
+fn prompt_number<T>(label: &str, default: T) -> anyhow::Result<T>
+where
+    T: std::str::FromStr + ToString + Copy,
+{
+    let input = prompt_with_default(label, &default.to_string())?;
+    Ok(input.parse().unwrap_or(default))
+}
+
+/// Interactive configuration wizard shared with the GUI config file.
+fn run_config_wizard(mut settings: AppSettings) -> anyhow::Result<()> {
+    println!("Phone Agent CLI Setup (shared with GUI)");
+    if let Some(path) = AppSettings::settings_path() {
+        println!("Config file: {}", path.display());
+    }
+    println!("Press Enter to keep the current value in brackets.\n");
+
+    settings.base_url = prompt_with_default("Model base URL", &settings.base_url)?;
+    settings.api_key = prompt_with_default("Model API key", &settings.api_key)?;
+    settings.model_name = prompt_with_default("Model name", &settings.model_name)?;
+    settings.device_id = prompt_with_default("ADB device ID (optional)", &settings.device_id)?;
+
+    let lang_input = prompt_with_default("Language (cn/en)", &settings.lang)?;
+    settings.lang = if lang_input.to_lowercase() == "en" {
+        "en".to_string()
+    } else {
+        "cn".to_string()
+    };
+
+    let coord_input = prompt_with_default(
+        "Coordinate system (relative/absolute)",
+        &settings.coordinate_system,
+    )?;
+    settings.coordinate_system = match coord_input.to_lowercase().as_str() {
+        "absolute" | "abs" => "absolute".to_string(),
+        _ => "relative".to_string(),
+    };
+
+    if settings.coordinate_system == "absolute" {
+        let default_scale = if settings.scale_x == 1.0 && settings.scale_y == 1.0 {
+            DEFAULT_COORDINATE_SCALE
+        } else {
+            settings.scale_x
+        };
+        settings.scale_x = prompt_number("Coordinate scale X", default_scale)?;
+        settings.scale_y = prompt_number("Coordinate scale Y", default_scale)?;
+    } else {
+        settings.scale_x = 1.0;
+        settings.scale_y = 1.0;
+        println!("Using relative coordinates: scale fixed to 1.0");
+    }
+
+    settings.max_retries = prompt_number("Max retries", settings.max_retries)?;
+    settings.retry_delay = prompt_number("Retry delay (seconds)", settings.retry_delay)?;
+    settings.max_steps = prompt_number("Max steps", settings.max_steps)?;
+
+    settings.enable_calibration = prompt_bool("Enable calibration? (y/n)", settings.enable_calibration)?;
+    let mode_input = prompt_with_default("Calibration mode (simple/complex)", &settings.calibration_mode)?;
+    settings.calibration_mode = if mode_input.to_lowercase() == "complex" {
+        "complex".to_string()
+    } else {
+        "simple".to_string()
+    };
+    settings.calibration_rounds = prompt_number(
+        "Calibration rounds (complex mode)",
+        settings.calibration_rounds,
+    )?;
+
+    settings
+        .save()
+        .map_err(|e| anyhow!(e))?;
+
+    println!("\n✅ Settings saved. They will be used by both CLI and GUI.");
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,62 +190,45 @@ async fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
 
-    // Get configuration from environment or use defaults
-    let base_url =
-        env::var("MODEL_BASE_URL").unwrap_or_else(|_| "http://localhost:8000/v1".to_string());
-    let api_key = env::var("MODEL_API_KEY").unwrap_or_else(|_| "EMPTY".to_string());
-    let model_name = env::var("MODEL_NAME").unwrap_or_else(|_| "autoglm-phone-9b".to_string());
-    let device_id = env::var("ADB_DEVICE_ID").ok();
-    let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
+    // Allow running interactive setup before anything else
+    if args.iter().any(|arg| {
+        matches!(arg.as_str(), "config" | "--config" | "--setup" | "setup")
+    }) {
+        run_config_wizard(AppSettings::load())?;
+        return Ok(());
+    }
 
-    // Get coordinate system from environment (default: relative)
-    // "relative" or "rel" for relative coordinates (0-999 range, original AutoGLM-Phone style, default)
-    // "absolute" or "abs" for absolute pixel coordinates
-    let coordinate_system = match env::var("COORDINATE_SYSTEM")
-        .unwrap_or_else(|_| "relative".to_string())
-        .to_lowercase()
-        .as_str()
-    {
+    // Merge stored settings with environment overrides
+    let settings = load_settings_with_env();
+
+    let coordinate_system = match settings.coordinate_system.to_lowercase().as_str() {
         "absolute" | "abs" => CoordinateSystem::Absolute,
         _ => CoordinateSystem::Relative,
     };
 
-    // Get retry configuration from environment
-    let max_retries: u32 = env::var("MODEL_MAX_RETRIES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_MAX_RETRIES);
-    let retry_delay: u64 = env::var("MODEL_RETRY_DELAY")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_RETRY_DELAY_SECS);
+    let lang = settings.lang.clone();
 
-    // Get coordinate scale factors from environment (only used for absolute mode)
-    // Default is 1.0 for relative mode, 1.61 for absolute mode
     let default_scale = match coordinate_system {
         CoordinateSystem::Relative => 1.0,
         CoordinateSystem::Absolute => DEFAULT_COORDINATE_SCALE,
     };
-    let scale_x: f64 = env::var("COORDINATE_SCALE_X")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(default_scale);
-    let scale_y: f64 = env::var("COORDINATE_SCALE_Y")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(default_scale);
-    // Allow setting both X and Y with a single variable
-    let (scale_x, scale_y) = if let Ok(uniform_scale) = env::var("COORDINATE_SCALE") {
-        let scale: f64 = uniform_scale.parse().unwrap_or(default_scale);
-        (scale, scale)
-    } else {
-        (scale_x, scale_y)
-    };
+
+    let mut scale_x = if settings.scale_x == 0.0 { default_scale } else { settings.scale_x };
+    let mut scale_y = if settings.scale_y == 0.0 { default_scale } else { settings.scale_y };
+
+    // If coordinate system changed from stored value, reset to sensible defaults
+    if coordinate_system == CoordinateSystem::Relative {
+        scale_x = 1.0;
+        scale_y = 1.0;
+    } else if coordinate_system == CoordinateSystem::Absolute
+        && (settings.scale_x == 1.0 && settings.scale_y == 1.0)
+    {
+        scale_x = DEFAULT_COORDINATE_SCALE;
+        scale_y = DEFAULT_COORDINATE_SCALE;
+    }
 
     // Check if calibration is requested
-    let enable_calibration = env::var("ENABLE_CALIBRATION")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false);
+    let enable_calibration = settings.enable_calibration;
     let calibration_simple = args.iter().any(|arg| arg == "--calibrate");
     let calibration_complex = args.iter().any(|arg| arg == "--calibrate-complex");
     let calibration_only = calibration_simple || calibration_complex;
@@ -84,34 +237,36 @@ async fn main() -> anyhow::Result<()> {
     let calibration_mode = if calibration_complex {
         CalibrationMode::Complex
     } else {
-        // Check environment variable for mode
-        let mode_env = env::var("CALIBRATION_MODE").unwrap_or_default();
-        if mode_env.to_lowercase() == "complex" {
+        let mode_env = settings.calibration_mode.to_lowercase();
+        if mode_env == "complex" {
             CalibrationMode::Complex
         } else {
             CalibrationMode::Simple
         }
     };
 
-    // Get complex calibration rounds from environment
-    let complex_rounds: usize = env::var("CALIBRATION_COMPLEX_ROUNDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(5);
+    let complex_rounds: usize = settings.calibration_rounds;
 
     // Build model config
     let model_config = ModelConfig::default()
-        .with_base_url(&base_url)
-        .with_api_key(&api_key)
-        .with_model_name(&model_name)
-        .with_max_retries(max_retries)
-        .with_retry_delay(retry_delay);
+        .with_base_url(&settings.base_url)
+        .with_api_key(&settings.api_key)
+        .with_model_name(&settings.model_name)
+        .with_max_retries(settings.max_retries)
+        .with_retry_delay(settings.retry_delay);
 
     // Build agent config with coordinate system
     let mut agent_config = AgentConfig::default()
         .with_lang(&lang)
         .with_coordinate_system(coordinate_system)
-        .with_scale(scale_x, scale_y);
+        .with_scale(scale_x, scale_y)
+        .with_max_steps(settings.max_steps);
+
+    let device_id = if settings.device_id.trim().is_empty() {
+        None
+    } else {
+        Some(settings.device_id.clone())
+    };
     let device_id_clone = device_id.clone();
     if let Some(id) = device_id {
         agent_config = agent_config.with_device_id(id);
@@ -124,7 +279,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("🤖 Phone Agent - AI-powered Android Automation");
     println!("================================================");
-    println!("Model: {} @ {}", model_name, base_url);
+    println!("Model: {} @ {}", settings.model_name, settings.base_url);
     println!("Language: {}", lang);
     println!("Coordinate System: {}", coord_system_name);
     if coordinate_system == CoordinateSystem::Absolute {
@@ -132,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
     }
     println!(
         "Retry: max {} attempts, {}s delay",
-        max_retries, retry_delay
+        settings.max_retries, settings.retry_delay
     );
     if let Some(ref id) = agent_config.device_id {
         println!("Device: {}", id);
@@ -208,7 +363,7 @@ async fn main() -> anyhow::Result<()> {
 
     if dual_loop_mode {
         // Dual loop mode
-        run_dual_loop_mode(model_config, agent_config).await?;
+        run_dual_loop_mode(model_config, agent_config, lang.clone()).await?;
     } else {
         // Single loop mode (original)
         run_single_loop_mode(model_config, agent_config, args).await?;
@@ -281,6 +436,7 @@ async fn run_single_loop_mode(
 async fn run_dual_loop_mode(
     executor_model_config: phone_agent::ModelConfig,
     executor_agent_config: phone_agent::AgentConfig,
+    lang: String,
 ) -> anyhow::Result<()> {
     use phone_agent::{
         DualLoopConfig, DualLoopRunner, PlannerAgent, PlannerConfig,
@@ -316,8 +472,6 @@ async fn run_dual_loop_mode(
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(500);
-
-    let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
 
     println!("Planner Model: {} @ {}", planner_model_name, planner_base_url);
     println!("Feedback History: {} entries", max_feedback_history);
