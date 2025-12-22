@@ -101,10 +101,34 @@ impl AppSettings {
 
     /// Load settings from the config file.
     pub fn load() -> Self {
-        Self::settings_path()
+        let defaults = Self::default();
+
+        let mut loaded = Self::settings_path()
             .and_then(|path| fs::read_to_string(&path).ok())
             .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        // Backfill new fields when loading older config files
+        if loaded.planner_base_url.is_empty() {
+            loaded.planner_base_url = defaults.planner_base_url;
+        }
+        if loaded.planner_api_key.is_empty() {
+            loaded.planner_api_key = defaults.planner_api_key;
+        }
+        if loaded.planner_model_name.is_empty() {
+            loaded.planner_model_name = defaults.planner_model_name;
+        }
+        if loaded.prompt_memory_path.is_empty() {
+            loaded.prompt_memory_path = defaults.prompt_memory_path;
+        }
+        if loaded.planner_interval_ms == 0 {
+            loaded.planner_interval_ms = defaults.planner_interval_ms;
+        }
+        if loaded.executor_interval_ms == 0 {
+            loaded.executor_interval_ms = defaults.executor_interval_ms;
+        }
+
+        loaded
     }
 
     /// Save settings to the config file.
