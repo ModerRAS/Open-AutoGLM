@@ -59,6 +59,23 @@ phone-agent = { git = "https://github.com/ModerRAS/Open-AutoGLM.git" }
 - **命令行版本（CLI）**：`phone-agent`
 - **图形界面（GUI, Iced）**：`phone-agent-gui`
 
+#### 快速配置（CLI / GUI 共用）
+
+- 配置文件路径（示例）：Windows 在 `%APPDATA%/moderras/phone-agent/config/settings.json`
+- 运行交互式向导（会加载现有值并补全缺失字段）：
+
+```bash
+cargo run --bin phone-agent -- config
+```
+
+- 环境变量仍然具有最高优先级，会覆盖文件中的值。
+
+#### 启用双循环（Planner + Executor）
+
+- 在向导中回答 “Enable dual-loop mode by default? (y/n)”
+- 或直接在配置文件写入：`"dual_loop_mode": true`
+- 或使用环境变量覆盖：`DUAL_LOOP_MODE=true`
+
 ```bash
 # 方式1：使用 .env 文件（推荐）
 # 在项目根目录创建 .env 文件
@@ -85,6 +102,7 @@ export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # 或 "en"
 export ADB_DEVICE_ID="your-device-id"  # 单设备时可选
 export COORDINATE_SYSTEM="relative"  # 或 "absolute"
+export DUAL_LOOP_MODE="true"          # 可选：开启 Planner + Executor 双循环
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -93,6 +111,7 @@ $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
 $env:COORDINATE_SYSTEM="relative"
+$env:DUAL_LOOP_MODE="true"           # 可选
 
 # 运行任务
 cargo run --release --bin phone-agent -- "打开微信发送消息给张三"

@@ -80,6 +80,44 @@ fn load_settings_with_env() -> AppSettings {
         }
     }
 
+    // Planner model settings
+    if let Ok(v) = env::var("PLANNER_MODEL_BASE_URL") {
+        settings.planner_base_url = v;
+    }
+    if let Ok(v) = env::var("PLANNER_MODEL_API_KEY") {
+        settings.planner_api_key = v;
+    }
+    if let Ok(v) = env::var("PLANNER_MODEL_NAME") {
+        settings.planner_model_name = v;
+    }
+    if let Ok(v) = env::var("MAX_EXECUTOR_FEEDBACK_HISTORY") {
+        if let Ok(parsed) = v.parse() {
+            settings.max_executor_feedback_history = parsed;
+        }
+    }
+    if let Ok(v) = env::var("STUCK_THRESHOLD") {
+        if let Ok(parsed) = v.parse() {
+            settings.stuck_threshold = parsed;
+        }
+    }
+    if let Ok(v) = env::var("PROMPT_MEMORY_PATH") {
+        settings.prompt_memory_path = v;
+    }
+    if let Ok(v) = env::var("PLANNER_INTERVAL_MS") {
+        if let Ok(parsed) = v.parse() {
+            settings.planner_interval_ms = parsed;
+        }
+    }
+    if let Ok(v) = env::var("EXECUTOR_INTERVAL_MS") {
+        if let Ok(parsed) = v.parse() {
+            settings.executor_interval_ms = parsed;
+        }
+    }
+
+    if let Ok(v) = env::var("DUAL_LOOP_MODE") {
+        settings.dual_loop_mode = v == "1" || v.to_lowercase() == "true";
+    }
+
     settings
 }
 
@@ -169,6 +207,33 @@ fn run_config_wizard(mut settings: AppSettings) -> anyhow::Result<()> {
     settings.calibration_rounds = prompt_number(
         "Calibration rounds (complex mode)",
         settings.calibration_rounds,
+    )?;
+
+    println!("\nPlanner (dual-loop) settings");
+    settings.planner_base_url = prompt_with_default("Planner model base URL", &settings.planner_base_url)?;
+    settings.planner_api_key = prompt_with_default("Planner model API key", &settings.planner_api_key)?;
+    settings.planner_model_name = prompt_with_default("Planner model name", &settings.planner_model_name)?;
+    settings.max_executor_feedback_history = prompt_number(
+        "Max executor feedback history",
+        settings.max_executor_feedback_history,
+    )?;
+    settings.stuck_threshold = prompt_number("Stuck threshold", settings.stuck_threshold)?;
+    settings.prompt_memory_path = prompt_with_default(
+        "Prompt memory path",
+        &settings.prompt_memory_path,
+    )?;
+    settings.planner_interval_ms = prompt_number(
+        "Planner interval (ms)",
+        settings.planner_interval_ms,
+    )?;
+    settings.executor_interval_ms = prompt_number(
+        "Executor interval (ms)",
+        settings.executor_interval_ms,
+    )?;
+
+    settings.dual_loop_mode = prompt_bool(
+        "Enable dual-loop mode by default? (y/n)",
+        settings.dual_loop_mode,
     )?;
 
     settings
@@ -357,13 +422,11 @@ async fn main() -> anyhow::Result<()> {
     let agent_config = agent_config.with_scale(scale_x, scale_y);
 
     // Check for dual loop mode
-    let dual_loop_mode = env::var("DUAL_LOOP_MODE")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false);
+    let dual_loop_mode = settings.dual_loop_mode;
 
     if dual_loop_mode {
         // Dual loop mode
-        run_dual_loop_mode(model_config, agent_config, lang.clone()).await?;
+        run_dual_loop_mode(model_config, agent_config, lang.clone(), settings.clone()).await?;
     } else {
         // Single loop mode (original)
         run_single_loop_mode(model_config, agent_config, args).await?;
@@ -437,6 +500,7 @@ async fn run_dual_loop_mode(
     executor_model_config: phone_agent::ModelConfig,
     executor_agent_config: phone_agent::AgentConfig,
     lang: String,
+    settings: AppSettings,
 ) -> anyhow::Result<()> {
     use phone_agent::{
         DualLoopConfig, DualLoopRunner, PlannerAgent, PlannerConfig,
@@ -445,33 +509,16 @@ async fn run_dual_loop_mode(
     println!("\n🔄 Dual Loop Mode Enabled");
     println!("================================================\n");
 
-    // Get planner configuration from environment
-    let planner_base_url = env::var("PLANNER_MODEL_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
-    let planner_api_key = env::var("PLANNER_MODEL_API_KEY")
-        .unwrap_or_else(|_| "EMPTY".to_string());
-    let planner_model_name = env::var("PLANNER_MODEL_NAME")
-        .unwrap_or_else(|_| "deepseek-chat".to_string());
+    // Planner and dual-loop configuration from shared settings
+    let planner_base_url = settings.planner_base_url;
+    let planner_api_key = settings.planner_api_key;
+    let planner_model_name = settings.planner_model_name;
 
-    // Get dual loop configuration from environment
-    let max_feedback_history: usize = env::var("MAX_EXECUTOR_FEEDBACK_HISTORY")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2);
-    let stuck_threshold: u32 = env::var("STUCK_THRESHOLD")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3);
-    let prompt_memory_path = env::var("PROMPT_MEMORY_PATH")
-        .unwrap_or_else(|_| "prompt_memory.json".to_string());
-    let planner_interval: u64 = env::var("PLANNER_INTERVAL_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2000);
-    let executor_interval: u64 = env::var("EXECUTOR_INTERVAL_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(500);
+    let max_feedback_history: usize = settings.max_executor_feedback_history;
+    let stuck_threshold: u32 = settings.stuck_threshold;
+    let prompt_memory_path = settings.prompt_memory_path;
+    let planner_interval: u64 = settings.planner_interval_ms;
+    let executor_interval: u64 = settings.executor_interval_ms;
 
     println!("Planner Model: {} @ {}", planner_model_name, planner_base_url);
     println!("Feedback History: {} entries", max_feedback_history);

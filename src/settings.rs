@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 /// Application settings that can be saved and loaded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     /// Model API base URL
     pub base_url: String,
@@ -36,6 +37,24 @@ pub struct AppSettings {
     pub calibration_mode: String,
     /// Complex calibration rounds
     pub calibration_rounds: usize,
+    /// Planner model API base URL
+    pub planner_base_url: String,
+    /// Planner model API key
+    pub planner_api_key: String,
+    /// Planner model name
+    pub planner_model_name: String,
+    /// Max executor feedback history for planner
+    pub max_executor_feedback_history: usize,
+    /// Stuck threshold for planner (consecutive unchanged screens)
+    pub stuck_threshold: u32,
+    /// Prompt memory file path
+    pub prompt_memory_path: String,
+    /// Planner loop interval in milliseconds
+    pub planner_interval_ms: u64,
+    /// Executor loop interval in milliseconds
+    pub executor_interval_ms: u64,
+    /// Enable dual-loop mode (planner + executor)
+    pub dual_loop_mode: bool,
 }
 
 impl Default for AppSettings {
@@ -55,6 +74,15 @@ impl Default for AppSettings {
             enable_calibration: false,
             calibration_mode: "simple".to_string(),
             calibration_rounds: 5,
+            planner_base_url: "https://api.deepseek.com/v1".to_string(),
+            planner_api_key: "EMPTY".to_string(),
+            planner_model_name: "deepseek-chat".to_string(),
+            max_executor_feedback_history: 2,
+            stuck_threshold: 3,
+            prompt_memory_path: "prompt_memory.json".to_string(),
+            planner_interval_ms: 2000,
+            executor_interval_ms: 500,
+            dual_loop_mode: false,
         }
     }
 }

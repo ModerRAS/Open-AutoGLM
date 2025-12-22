@@ -59,6 +59,22 @@ This repo provides two binaries:
 - **CLI**: `phone-agent`
 - **GUI**: `phone-agent-gui`
 
+#### Quick setup (shared config for CLI & GUI)
+
+- Config file is stored in the platform config dir, e.g. Windows: `%APPDATA%/moderras/phone-agent/config/settings.json`
+- Run the interactive wizard (auto-loads current values, updates missing fields):
+
+```bash
+cargo run --bin phone-agent -- config
+```
+
+- Environment variables still override file values when present.
+
+#### Enable dual-loop (planner + executor)
+
+- In the wizard: answer “Enable dual-loop mode by default? (y/n)”
+- Or set in the config file: `"dual_loop_mode": true`
+- Or env override: `DUAL_LOOP_MODE=true`
 ```bash
 # Option 1: Use a .env file (recommended)
 # Create a .env file in the project root
@@ -85,6 +101,7 @@ export MODEL_NAME="autoglm-phone-9b"
 export AGENT_LANG="cn"  # or "en"
 export ADB_DEVICE_ID="your-device-id"  # optional for single device
 export COORDINATE_SYSTEM="relative"  # or "absolute"
+export DUAL_LOOP_MODE="true"          # optional: enable planner + executor
 
 # Windows PowerShell:
 $env:MODEL_BASE_URL="http://localhost:8000/v1"
@@ -93,6 +110,7 @@ $env:MODEL_NAME="autoglm-phone-9b"
 $env:AGENT_LANG="cn"
 $env:ADB_DEVICE_ID="your-device-id"
 $env:COORDINATE_SYSTEM="relative"
+$env:DUAL_LOOP_MODE="true"           # optional
 
 # Run with a task
 cargo run --release --bin phone-agent -- "打开微信发送消息给张三"
