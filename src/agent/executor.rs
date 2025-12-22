@@ -369,7 +369,15 @@ impl ExecutorWrapper {
                             "Executor context overflow detected: {} consecutive parse errors",
                             self.consecutive_parse_errors
                         );
-                        // Don't change status here, let Planner decide what to do
+                        // Reset agent context to recover and avoid runaway tokens
+                        self.inner.reset();
+                        self.stuck_count = 0;
+                        // Add a minimal reminder for next step to strictly follow schema
+                        self.pending_prompt = Some(
+                            "请严格输出 do(...) 或 finish(...)，不要重复总结，直接给动作指令。".to_string(),
+                        );
+                        // Clear counter after reset
+                        self.consecutive_parse_errors = 0;
                     }
                 } else {
                     // Reset parse error count on successful parse
