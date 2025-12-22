@@ -581,10 +581,16 @@ impl PlannerAgent {
     async fn supervise_executor(&mut self) {
         // Check latest executor feedback - clone to avoid borrow issues
         let feedback_info = self.executor_feedback_history.back().map(|f| {
-            (f.status.clone(), f.clone())
+            (f.status.clone(), f.context_overflow_detected, f.consecutive_parse_errors, f.clone())
         });
 
-        if let Some((status, _feedback)) = feedback_info {
+        if let Some((status, context_overflow, parse_errors, _feedback)) = feedback_info {
+            // Handle context overflow first (highest priority)
+            if context_overflow {
+                self.handle_context_overflow(parse_errors).await;
+                return;
+            }
+
             match status {
                 ExecutorStatus::Stuck => {
                     self.handle_stuck().await;
@@ -599,6 +605,39 @@ impl PlannerAgent {
                     // Running, Paused, or Idle - nothing special to do
                     self.consecutive_stuck_count = 0;
                 }
+            }
+        }
+    }
+
+    /// Handle context overflow (too many parse errors).
+    async fn handle_context_overflow(&mut self, parse_errors: u32) {
+        println!("⚠️ [System] 检测到执行器上下文溢出 (连续 {} 次解析错误)", parse_errors);
+        println!("   🔄 自动重置执行器上下文并重试当前任务...");
+        tracing::error!("Context overflow detected: {} consecutive parse errors", parse_errors);
+
+        // Get current task info before reset
+        let current_task_info = self.todo_list.current_running().map(|t| {
+            (t.id.clone(), t.description.clone(), t.task_type.clone())
+        });
+
+        // Reset executor context
+        self.executor.enqueue(ExecutorCommand::ResetContext);
+
+        // If there's a current task, restart it
+        if let Some((task_id, task_desc, _task_type)) = current_task_info {
+            println!("   📋 重新启动任务: {} - {}", task_id, task_desc);
+            
+            // Small delay to let reset take effect
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Restart the task
+            self.start_task(&task_id);
+        } else {
+            // No current task, check if there are pending tasks
+            if let Some(next_task) = self.todo_list.next_pending() {
+                let task_id = next_task.id.clone();
+                println!("   📋 启动下一个待执行任务: {}", task_id);
+                self.start_task(&task_id);
             }
         }
     }

@@ -73,6 +73,12 @@ pub struct ExecutorFeedback {
     pub screen_changed: bool,
     /// Unix timestamp of this feedback.
     pub timestamp: u64,
+    /// Whether the executor detected abnormal output (context overflow).
+    #[serde(default)]
+    pub context_overflow_detected: bool,
+    /// Consecutive parse error count.
+    #[serde(default)]
+    pub consecutive_parse_errors: u32,
 }
 
 /// Summarized step result for feedback (without large data).
@@ -117,6 +123,9 @@ impl From<&StepResult> for StepResultSummary {
 /// Default stuck threshold (consecutive unchanged screens).
 pub const DEFAULT_STUCK_THRESHOLD: u32 = 3;
 
+/// Default parse error threshold before suggesting context reset.
+pub const DEFAULT_PARSE_ERROR_THRESHOLD: u32 = 3;
+
 /// Executor wrapper that provides control interfaces for PhoneAgent.
 pub struct ExecutorWrapper {
     /// Inner PhoneAgent instance.
@@ -141,6 +150,8 @@ pub struct ExecutorWrapper {
     stuck_threshold: u32,
     /// Pending prompt injection.
     pending_prompt: Option<String>,
+    /// Consecutive parse error count (indicates potential context overflow).
+    consecutive_parse_errors: u32,
 }
 
 impl ExecutorWrapper {
@@ -160,6 +171,7 @@ impl ExecutorWrapper {
             stuck_count: 0,
             stuck_threshold: DEFAULT_STUCK_THRESHOLD,
             pending_prompt: None,
+            consecutive_parse_errors: 0,
         }
     }
 
@@ -316,7 +328,7 @@ impl ExecutorWrapper {
         let should_execute = matches!(self.status, ExecutorStatus::Running);
 
         if !should_execute {
-            return self.create_feedback(None, true);
+            return self.create_feedback(None, true, false);
         }
 
         // Determine the task for this step
@@ -336,12 +348,40 @@ impl ExecutorWrapper {
 
         match result {
             Ok(step_result) => {
+                // Check if this was a parse error (indicates potential context overflow)
+                let is_parse_error = step_result.action
+                    .as_ref()
+                    .and_then(|a| a.get("error"))
+                    .and_then(|e| e.as_str())
+                    .map(|s| s == "parse_failed")
+                    .unwrap_or(false);
+
+                if is_parse_error {
+                    self.consecutive_parse_errors += 1;
+                    tracing::warn!(
+                        "Executor parse error (consecutive: {})",
+                        self.consecutive_parse_errors
+                    );
+                    
+                    // If too many consecutive parse errors, likely context overflow
+                    if self.consecutive_parse_errors >= DEFAULT_PARSE_ERROR_THRESHOLD {
+                        tracing::error!(
+                            "Executor context overflow detected: {} consecutive parse errors",
+                            self.consecutive_parse_errors
+                        );
+                        // Don't change status here, let Planner decide what to do
+                    }
+                } else {
+                    // Reset parse error count on successful parse
+                    self.consecutive_parse_errors = 0;
+                }
+
                 // Calculate screen hash from context (simplified - using thinking as proxy)
                 let screen_hash = self.calculate_context_hash();
                 let screen_changed = self.detect_screen_change(screen_hash);
 
                 // Check for stuck
-                if !screen_changed {
+                if !screen_changed && !is_parse_error {
                     self.stuck_count += 1;
                     if self.stuck_count >= self.stuck_threshold {
                         self.status = ExecutorStatus::Stuck;
@@ -350,7 +390,7 @@ impl ExecutorWrapper {
                             self.stuck_count
                         );
                     }
-                } else {
+                } else if !is_parse_error {
                     self.stuck_count = 0;
                 }
 
@@ -360,12 +400,13 @@ impl ExecutorWrapper {
                     tracing::info!("Executor completed task");
                 }
 
-                self.create_feedback(Some(&step_result), screen_changed)
+                let context_overflow = self.consecutive_parse_errors >= DEFAULT_PARSE_ERROR_THRESHOLD;
+                self.create_feedback(Some(&step_result), screen_changed, context_overflow)
             }
             Err(e) => {
                 self.status = ExecutorStatus::Failed(e.to_string());
                 tracing::error!("Executor failed: {}", e);
-                self.create_feedback(None, true)
+                self.create_feedback(None, true, false)
             }
         }
     }
@@ -404,7 +445,7 @@ impl ExecutorWrapper {
     }
 
     /// Create feedback for Planner.
-    fn create_feedback(&self, result: Option<&StepResult>, screen_changed: bool) -> ExecutorFeedback {
+    fn create_feedback(&self, result: Option<&StepResult>, screen_changed: bool, context_overflow: bool) -> ExecutorFeedback {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -417,6 +458,8 @@ impl ExecutorWrapper {
             last_result: result.map(StepResultSummary::from),
             screen_changed,
             timestamp,
+            context_overflow_detected: context_overflow,
+            consecutive_parse_errors: self.consecutive_parse_errors,
         }
     }
 

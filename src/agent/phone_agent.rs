@@ -368,15 +368,16 @@ impl PhoneAgent {
                 }
                 // Return a retry action instead of finishing
                 // This will prompt the model to continue/retry in the next step
+                // Safe truncation for UTF-8
+                let truncated_action = if response.action.chars().count() > 150 {
+                    format!("{}...", response.action.chars().take(150).collect::<String>())
+                } else {
+                    response.action.clone()
+                };
                 (serde_json::json!({
                     "_metadata": "error",
                     "error": "parse_failed",
-                    "message": format!("无法解析动作指令，请重新输出完整的 do(...) 或 finish(...) 指令。原始输出: {}", 
-                        if response.action.len() > 200 { 
-                            format!("{}...", &response.action[..200]) 
-                        } else { 
-                            response.action.clone() 
-                        })
+                    "message": format!("无法解析动作指令，请重新输出完整的 do(...) 或 finish(...) 指令。原始输出: {}", truncated_action)
                 }), true)
             }
         };
