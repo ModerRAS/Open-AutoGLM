@@ -28,16 +28,16 @@ async fn main() -> anyhow::Result<()> {
     let device_id = env::var("ADB_DEVICE_ID").ok();
     let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
 
-    // Get coordinate system from environment (default: absolute)
-    // "relative" or "rel" for relative coordinates (0-999 range, original AutoGLM-Phone style)
-    // "absolute" or "abs" for absolute pixel coordinates (default)
+    // Get coordinate system from environment (default: relative)
+    // "relative" or "rel" for relative coordinates (0-999 range, original AutoGLM-Phone style, default)
+    // "absolute" or "abs" for absolute pixel coordinates
     let coordinate_system = match env::var("COORDINATE_SYSTEM")
-        .unwrap_or_else(|_| "absolute".to_string())
+        .unwrap_or_else(|_| "relative".to_string())
         .to_lowercase()
         .as_str()
     {
-        "relative" | "rel" => CoordinateSystem::Relative,
-        _ => CoordinateSystem::Absolute,
+        "absolute" | "abs" => CoordinateSystem::Absolute,
+        _ => CoordinateSystem::Relative,
     };
 
     // Get retry configuration from environment
@@ -201,6 +201,28 @@ async fn main() -> anyhow::Result<()> {
     // Update agent config with calibrated scale factors
     let agent_config = agent_config.with_scale(scale_x, scale_y);
 
+    // Check for dual loop mode
+    let dual_loop_mode = env::var("DUAL_LOOP_MODE")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    if dual_loop_mode {
+        // Dual loop mode
+        run_dual_loop_mode(model_config, agent_config).await?;
+    } else {
+        // Single loop mode (original)
+        run_single_loop_mode(model_config, agent_config, args).await?;
+    }
+
+    Ok(())
+}
+
+/// Run single loop mode (original behavior).
+async fn run_single_loop_mode(
+    model_config: phone_agent::ModelConfig,
+    agent_config: phone_agent::AgentConfig,
+    args: Vec<String>,
+) -> anyhow::Result<()> {
     // Create agent
     let mut agent = PhoneAgent::new(model_config, agent_config, None, None);
 
@@ -249,6 +271,142 @@ async fn main() -> anyhow::Result<()> {
                     eprintln!("\n❌ Error: {}\n", e);
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Run dual loop mode (new architecture).
+async fn run_dual_loop_mode(
+    executor_model_config: phone_agent::ModelConfig,
+    executor_agent_config: phone_agent::AgentConfig,
+) -> anyhow::Result<()> {
+    use phone_agent::{
+        DualLoopConfig, DualLoopRunner, PlannerAgent, PlannerConfig,
+    };
+
+    println!("\n🔄 Dual Loop Mode Enabled");
+    println!("================================================\n");
+
+    // Get planner configuration from environment
+    let planner_base_url = env::var("PLANNER_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
+    let planner_api_key = env::var("PLANNER_MODEL_API_KEY")
+        .unwrap_or_else(|_| "EMPTY".to_string());
+    let planner_model_name = env::var("PLANNER_MODEL_NAME")
+        .unwrap_or_else(|_| "deepseek-chat".to_string());
+
+    // Get dual loop configuration from environment
+    let max_feedback_history: usize = env::var("MAX_EXECUTOR_FEEDBACK_HISTORY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let stuck_threshold: u32 = env::var("STUCK_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let prompt_memory_path = env::var("PROMPT_MEMORY_PATH")
+        .unwrap_or_else(|_| "prompt_memory.json".to_string());
+    let planner_interval: u64 = env::var("PLANNER_INTERVAL_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2000);
+    let executor_interval: u64 = env::var("EXECUTOR_INTERVAL_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+
+    let lang = env::var("AGENT_LANG").unwrap_or_else(|_| "cn".to_string());
+
+    println!("Planner Model: {} @ {}", planner_model_name, planner_base_url);
+    println!("Feedback History: {} entries", max_feedback_history);
+    println!("Stuck Threshold: {} consecutive", stuck_threshold);
+    println!("Prompt Memory: {}", prompt_memory_path);
+    println!("Intervals: Planner={}ms, Executor={}ms", planner_interval, executor_interval);
+    println!("================================================\n");
+
+    // Build planner config
+    let planner_model_config = phone_agent::ModelConfig::default()
+        .with_base_url(&planner_base_url)
+        .with_api_key(&planner_api_key)
+        .with_model_name(&planner_model_name);
+
+    let planner_config = PlannerConfig::default()
+        .with_model_config(planner_model_config)
+        .with_max_feedback_history(max_feedback_history)
+        .with_stuck_threshold(stuck_threshold)
+        .with_prompt_memory_path(&prompt_memory_path)
+        .with_lang(&lang);
+
+    // Create planner
+    let planner = PlannerAgent::new(
+        planner_config,
+        executor_model_config,
+        executor_agent_config,
+    );
+
+    // Create dual loop runner
+    let loop_config = DualLoopConfig::default()
+        .with_planner_interval(planner_interval)
+        .with_executor_interval(executor_interval);
+
+    let runner = DualLoopRunner::new(planner, loop_config)
+        .with_feedback_callback(|feedback| {
+            // Log feedback (optional verbose output)
+            if matches!(feedback.status, 
+                phone_agent::ExecutorStatus::Completed | 
+                phone_agent::ExecutorStatus::Failed(_) |
+                phone_agent::ExecutorStatus::Stuck
+            ) {
+                println!("📡 Executor: {:?} (step {})", feedback.status, feedback.step_count);
+            }
+        });
+
+    // Run the dual loop
+    let handle = runner.run().await;
+
+    // Interactive input loop
+    println!("Dual Loop Interactive Mode");
+    println!("Type your task and press Enter. User input is queued to Planner.");
+    println!("Type 'quit' or 'exit' to stop.\n");
+
+    let stdin = io::stdin();
+    loop {
+        print!("📝 Input: ");
+        io::stdout().flush()?;
+
+        let mut line = String::new();
+        stdin.lock().read_line(&mut line)?;
+        let input = line.trim();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        if input == "quit" || input == "exit" {
+            println!("Stopping dual loop...");
+            let _ = handle.stop().await;
+            println!("Goodbye! 👋");
+            break;
+        }
+
+        if input == "pause" {
+            let _ = handle.pause().await;
+            println!("⏸️ Dual loop paused");
+            continue;
+        }
+
+        if input == "resume" {
+            let _ = handle.resume().await;
+            println!("▶️ Dual loop resumed");
+            continue;
+        }
+
+        // Send input to planner
+        match handle.send_user_input(input.to_string()).await {
+            Ok(_) => println!("✅ Input queued to Planner\n"),
+            Err(e) => eprintln!("❌ Failed to send input: {}\n", e),
         }
     }
 

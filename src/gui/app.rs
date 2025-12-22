@@ -71,8 +71,8 @@ impl CoordSystemOption {
 
     fn from_str(s: &str) -> Self {
         match s {
-            "relative" | "rel" => CoordSystemOption::Relative,
-            _ => CoordSystemOption::Absolute,
+            "absolute" | "abs" => CoordSystemOption::Absolute,
+            _ => CoordSystemOption::Relative,
         }
     }
 
@@ -386,7 +386,7 @@ impl PhoneAgentApp {
             Message::ResetSettings => {
                 self.settings = AppSettings::default();
                 self.language = Language::Chinese;
-                self.coord_system = CoordSystemOption::Absolute;
+                self.coord_system = CoordSystemOption::Relative;
                 self.calib_mode = CalibModeOption::Simple;
                 self.scale_x_input = self.settings.scale_x.to_string();
                 self.scale_y_input = self.settings.scale_y.to_string();
