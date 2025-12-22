@@ -842,13 +842,13 @@ impl PlannerAgent {
                 }
                 
                 println!("✅ [System] 已整合用户纠偏到记忆: {}", task_type);
-                println!("📝 新提示词: {}", 
-                    if optimized_prompt.len() > 100 { 
-                        format!("{}...", &optimized_prompt[..100]) 
-                    } else { 
-                        optimized_prompt.clone() 
-                    }
-                );
+                // Safe truncation for display (handle UTF-8 properly)
+                let display_prompt = if optimized_prompt.chars().count() > 80 {
+                    format!("{}...", optimized_prompt.chars().take(80).collect::<String>())
+                } else {
+                    optimized_prompt.clone()
+                };
+                println!("📝 新提示词: {}", display_prompt);
                 tracing::info!("Consolidated corrections for task type: {}", task_type);
             }
         }
