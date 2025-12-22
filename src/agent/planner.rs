@@ -1105,12 +1105,25 @@ impl PlannerAgent {
                 self.executor.enqueue(ExecutorCommand::Resume);
             }
             PlannerAction::InjectPrompt { content } => {
-                println!("💉 [System] 注入提示词: {}", content);
+                // Check executor status and provide appropriate feedback
+                let executor_status = self.executor.status().clone();
+                let was_stopped = matches!(executor_status, ExecutorStatus::Completed | ExecutorStatus::Idle);
+                
+                if was_stopped {
+                    println!("💉 [System] 注入提示词并唤醒执行器: {}", content);
+                    println!("   ℹ️  执行器之前状态: {:?}, 现在将继续执行", executor_status);
+                } else {
+                    println!("💉 [System] 注入提示词: {}", content);
+                }
                 
                 // Auto-learn: record this correction for the current task type
-                if let Some(task) = self.todo_list.current_running() {
-                    let task_type = task.task_type.clone();
-                    let context = Some(format!("任务: {} - {}", task.id, task.description));
+                // Look for the most recently active task if no running task
+                let task_info = self.todo_list.current_running()
+                    .or_else(|| self.todo_list.last_completed())
+                    .map(|t| (t.task_type.clone(), t.id.clone(), t.description.clone()));
+                
+                if let Some((task_type, task_id, task_desc)) = task_info {
+                    let context = Some(format!("任务: {} - {}", task_id, task_desc));
                     self.prompt_memory.add_correction(&task_type, &content, context);
                     
                     // Check if we should consolidate corrections
@@ -1118,12 +1131,19 @@ impl PlannerAgent {
                     if correction_count >= 3 {
                         println!("📚 [System] 检测到 {} 条纠偏记录，将自动整合到记忆中...", correction_count);
                         // Schedule consolidation (will be done async)
-                        self.pending_consolidation_task_types.push(task_type);
+                        self.pending_consolidation_task_types.push(task_type.clone());
                     }
                     
                     // Save memory
                     if let Some(path) = &self.config.prompt_memory_path {
                         let _ = self.prompt_memory.save(path);
+                    }
+                    
+                    // If executor was stopped, re-mark the task as running
+                    if was_stopped {
+                        if let Some(task) = self.todo_list.get_mut(&task_id) {
+                            task.start(); // Re-mark as running
+                        }
                     }
                 }
                 

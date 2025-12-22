@@ -230,10 +230,31 @@ impl ExecutorWrapper {
             ExecutorCommand::InjectPrompt { content } => {
                 self.pending_prompt = Some(content);
                 tracing::info!("Prompt injection queued");
-                // If stuck, change status back to running
-                if self.status == ExecutorStatus::Stuck {
-                    self.status = ExecutorStatus::Running;
-                    self.stuck_count = 0;
+                // If stuck, completed, or idle - change status back to running
+                // This allows user corrections to wake up the executor
+                match self.status {
+                    ExecutorStatus::Stuck => {
+                        self.status = ExecutorStatus::Running;
+                        self.stuck_count = 0;
+                        tracing::info!("Executor resumed from stuck state via prompt injection");
+                    }
+                    ExecutorStatus::Completed => {
+                        // User thinks task is not actually complete, resume execution
+                        self.status = ExecutorStatus::Running;
+                        tracing::info!("Executor resumed from completed state via prompt injection (user correction)");
+                    }
+                    ExecutorStatus::Idle => {
+                        // If we have a task context, resume; otherwise log warning
+                        if self.current_task_id.is_some() {
+                            self.status = ExecutorStatus::Running;
+                            tracing::info!("Executor resumed from idle state via prompt injection");
+                        } else {
+                            tracing::warn!("Prompt injection received but no task context exists");
+                        }
+                    }
+                    _ => {
+                        // Running or Paused - just queue the prompt
+                    }
                 }
             }
             ExecutorCommand::ResetContext => {

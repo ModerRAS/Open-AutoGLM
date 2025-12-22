@@ -195,6 +195,21 @@ impl TodoList {
         self.items.iter().find(|item| item.status == TodoStatus::Running)
     }
 
+    /// Get the last completed (or most recent done) task.
+    /// Useful for finding context when executor is in Completed state.
+    pub fn last_completed(&self) -> Option<&TodoItem> {
+        // Return the last task that is Done (most recently completed)
+        self.items.iter().rev().find(|item| item.status == TodoStatus::Done)
+    }
+
+    /// Get the last active task (running, or most recent done/failed).
+    /// Useful for finding context when no task is currently running.
+    pub fn last_active(&self) -> Option<&TodoItem> {
+        self.current_running()
+            .or_else(|| self.last_completed())
+            .or_else(|| self.items.iter().rev().find(|item| item.status == TodoStatus::Failed))
+    }
+
     /// Get all pending tasks.
     pub fn pending_tasks(&self) -> Vec<&TodoItem> {
         self.items.iter().filter(|item| item.status == TodoStatus::Pending).collect()
