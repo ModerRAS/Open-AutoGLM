@@ -328,7 +328,12 @@ impl PhoneAgent {
             ));
         } else {
             let screen_info = MessageBuilder::build_screen_info(&current_app);
-            let text_content = format!("** Screen Info **\n\n{}", screen_info);
+            // Include injected prompt if provided
+            let text_content = if let Some(prompt) = user_prompt {
+                format!("** 用户补充指令 **\n{}\n\n** Screen Info **\n\n{}", prompt, screen_info)
+            } else {
+                format!("** Screen Info **\n\n{}", screen_info)
+            };
 
             self.context.push(MessageBuilder::create_user_message(
                 &text_content,
