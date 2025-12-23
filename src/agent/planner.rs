@@ -511,33 +511,47 @@ impl PlannerAgent {
             }
 
             // Get planner's response
-            match self.get_planner_response().await {
-                Some((response_text, action)) => {
+            match self.get_planner_response_multi().await {
+                Some((response_text, actions)) => {
                     // Print DeepSeek's response to terminal
                     println!("\n💬 [DeepSeek Response]:");
                     println!("{}", response_text);
                     println!();
 
-                    // Execute the parsed action
-                    if let Some(action) = action {
-                        println!("📋 [Action]: {:?}", action);
-
-                        // Check if this is a terminal action that should stop the loop
-                        let should_continue = self.should_continue_after_action(&action);
-
-                        self.execute_planner_action(action).await;
-
-                        if !should_continue {
-                            break;
-                        }
-
-                        // After executing action, prompt the model to continue
-                        // (The feedback was already added in execute_planner_action)
-                    } else {
-                        // No valid action parsed, stop
+                    // Execute all parsed actions
+                    if actions.is_empty() {
                         println!("⚠️ [System] 未能解析有效动作");
                         break;
                     }
+
+                    // Print all actions
+                    if actions.len() > 1 {
+                        println!("📋 [Actions] 检测到 {} 个动作:", actions.len());
+                        for (i, action) in actions.iter().enumerate() {
+                            println!("   {}. {:?}", i + 1, action);
+                        }
+                    } else {
+                        println!("📋 [Action]: {:?}", actions[0]);
+                    }
+
+                    // Execute actions and check if we should continue
+                    let mut should_break = false;
+                    for action in actions {
+                        let should_continue = self.should_continue_after_action(&action);
+                        self.execute_planner_action(action).await;
+
+                        if !should_continue {
+                            should_break = true;
+                            // Don't break immediately - execute all actions first
+                        }
+                    }
+
+                    if should_break {
+                        break;
+                    }
+
+                    // After executing actions, the loop continues
+                    // (Feedback was already added in execute_planner_action)
                 }
                 None => {
                     println!("❌ [Planner] Failed to get response from model");
@@ -579,6 +593,30 @@ impl PlannerAgent {
                 // Parse action from response
                 let action = self.parse_planner_action(&response.action);
                 Some((response_text, action))
+            }
+            Err(e) => {
+                println!("❌ [Planner] Model error: {}", e);
+                tracing::error!("Planner model error: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Get planner's response and parse ALL actions.
+    /// Returns (raw_response, parsed_actions).
+    async fn get_planner_response_multi(&mut self) -> Option<(String, Vec<PlannerAction>)> {
+        // Call planner model
+        match self.model_client.request(&self.context).await {
+            Ok(response) => {
+                let response_text = response.raw_content.clone();
+
+                // Add assistant response to context
+                self.context
+                    .push(MessageBuilder::create_assistant_message(&response.action));
+
+                // Parse all actions from response
+                let actions = self.parse_planner_actions(&response.action);
+                Some((response_text, actions))
             }
             Err(e) => {
                 println!("❌ [Planner] Model error: {}", e);
@@ -1090,85 +1128,123 @@ impl PlannerAgent {
         summary
     }
 
-    /// Parse planner action from model response.
-    fn parse_planner_action(&self, response: &str) -> Option<PlannerAction> {
-        // Try to parse as JSON directly
+    /// Parse planner actions from model response.
+    /// Returns a Vec of all actions found in the response.
+    /// This supports single-step multi-tool calls.
+    fn parse_planner_actions(&self, response: &str) -> Vec<PlannerAction> {
+        let mut actions = Vec::new();
+
+        // Try to parse as JSON directly (single action)
         if let Ok(action) = serde_json::from_str::<PlannerAction>(response) {
-            return Some(action);
+            return vec![action];
         }
 
         // Try to extract JSON from code block (```json ... ``` or ``` ... ```)
-        let json_str = self.extract_json_from_response(response);
-        if let Some(json) = json_str {
+        if let Some(json) = self.extract_json_from_response(response) {
             if let Ok(action) = serde_json::from_str::<PlannerAction>(&json) {
-                return Some(action);
+                return vec![action];
             }
         }
 
-        // Try to find the FIRST complete JSON object in the response
-        // This handles cases where Planner outputs multiple JSONs
-        if let Some(json_str) = self.extract_first_json_object(response) {
-            if let Ok(action) = serde_json::from_str::<PlannerAction>(&json_str) {
-                return Some(action);
+        // Try to find ALL complete JSON objects in the response
+        let extracted = self.extract_all_json_objects(response);
+        for json_str in &extracted {
+            if let Ok(action) = serde_json::from_str::<PlannerAction>(json_str) {
+                actions.push(action);
             }
+        }
+
+        if !actions.is_empty() {
+            return actions;
         }
 
         // Simple keyword-based parsing as fallback
         let lower = response.to_lowercase();
         if lower.contains("wait") || lower.contains("等待") {
-            Some(PlannerAction::Wait)
+            vec![PlannerAction::Wait]
         } else if lower.contains("done") || lower.contains("完成") {
-            Some(PlannerAction::Done {
+            vec![PlannerAction::Done {
                 message: response.to_string(),
-            })
+            }]
         } else {
-            Some(PlannerAction::Report {
+            vec![PlannerAction::Report {
                 message: response.to_string(),
-            })
+            }]
         }
     }
 
-    /// Extract the first complete JSON object from text.
+    /// Legacy single-action parser for backward compatibility.
+    fn parse_planner_action(&self, response: &str) -> Option<PlannerAction> {
+        self.parse_planner_actions(response).into_iter().next()
+    }
+
+    /// Extract ALL complete JSON objects from text.
     /// Uses brace counting to find matching pairs.
-    fn extract_first_json_object(&self, text: &str) -> Option<String> {
-        let start = text.find('{')?;
-        let chars: Vec<char> = text[start..].chars().collect();
+    fn extract_all_json_objects(&self, text: &str) -> Vec<String> {
+        let mut results = Vec::new();
+        let chars: Vec<char> = text.chars().collect();
+        let mut pos = 0;
 
-        let mut brace_count = 0;
-        let mut in_string = false;
-        let mut escape_next = false;
-
-        for (i, ch) in chars.iter().enumerate() {
-            if escape_next {
-                escape_next = false;
-                continue;
+        while pos < chars.len() {
+            // Find next '{'
+            while pos < chars.len() && chars[pos] != '{' {
+                pos += 1;
+            }
+            if pos >= chars.len() {
+                break;
             }
 
-            match ch {
-                '\\' if in_string => {
-                    escape_next = true;
+            // Try to extract a complete JSON object starting from pos
+            let mut brace_count = 0;
+            let mut in_string = false;
+            let mut escape_next = false;
+            let start = pos;
+
+            for i in pos..chars.len() {
+                let ch = chars[i];
+
+                if escape_next {
+                    escape_next = false;
+                    continue;
                 }
-                '"' => {
-                    in_string = !in_string;
-                }
-                '{' if !in_string => {
-                    brace_count += 1;
-                }
-                '}' if !in_string => {
-                    brace_count -= 1;
-                    if brace_count == 0 {
-                        // Found the end of the first complete JSON object
-                        return Some(chars[..=i].iter().collect());
+
+                match ch {
+                    '\\' if in_string => {
+                        escape_next = true;
                     }
+                    '"' => {
+                        in_string = !in_string;
+                    }
+                    '{' if !in_string => {
+                        brace_count += 1;
+                    }
+                    '}' if !in_string => {
+                        brace_count -= 1;
+                        if brace_count == 0 {
+                            // Found complete JSON object
+                            let json_str: String = chars[start..=i].iter().collect();
+                            results.push(json_str);
+                            pos = i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+
+                // If we reach the end without closing, skip this '{'  
+                if i == chars.len() - 1 && brace_count > 0 {
+                    pos = start + 1;
+                }
+            }
+
+            // Safety: if we didn't find a complete object, move past current position
+            if brace_count > 0 {
+                pos = start + 1;
             }
         }
 
-        None
-    }
-
-    /// Extract JSON from markdown code blocks or bare JSON.
+        results
+    }    /// Extract JSON from markdown code blocks or bare JSON.
     fn extract_json_from_response(&self, response: &str) -> Option<String> {
         // Pattern 1: ```json\n{...}\n```
         if let Some(start) = response.find("```json") {
@@ -1423,5 +1499,180 @@ mod tests {
         let action = planner.parse_planner_action(json);
 
         assert!(matches!(action, Some(PlannerAction::AddTodo { .. })));
+    }
+
+    #[test]
+    fn test_parse_multiple_actions() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        // Test parsing multiple JSON actions in one response
+        let response = r#"
+好的，我来添加任务并启动执行器。
+
+{"action": "add_todo", "description": "打开微信", "task_type": "app_launch"}
+
+{"action": "start_executor", "task_id": "task_1"}
+"#;
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(actions[0], PlannerAction::AddTodo { .. }));
+        assert!(matches!(actions[1], PlannerAction::StartExecutor { .. }));
+    }
+
+    #[test]
+    fn test_parse_actions_with_chinese() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        let response = r#"{"action": "report", "message": "任务已完成，用户可以继续操作"}"#;
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        if let PlannerAction::Report { message } = &actions[0] {
+            assert!(message.contains("任务已完成"));
+        } else {
+            panic!("Expected Report action");
+        }
+    }
+
+    #[test]
+    fn test_parse_actions_in_code_block() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        let response = r#"
+我来添加一个任务：
+
+```json
+{"action": "add_todo", "description": "发送消息", "task_type": "messaging"}
+```
+"#;
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PlannerAction::AddTodo { .. }));
+    }
+
+    #[test]
+    fn test_parse_nested_json() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        // JSON with nested braces in string
+        let response = r#"{"action": "report", "message": "Found element at {x: 100, y: 200}"}"#;
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        if let PlannerAction::Report { message } = &actions[0] {
+            assert!(message.contains("{x: 100, y: 200}"));
+        } else {
+            panic!("Expected Report action");
+        }
+    }
+
+    #[test]
+    fn test_extract_all_json_objects() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        let text = r#"
+First action: {"key": "value1"}
+Second action: {"key": "value2", "nested": {"inner": true}}
+Third: {"key": "value3"}
+"#;
+        let jsons = planner.extract_all_json_objects(text);
+        assert_eq!(jsons.len(), 3);
+        assert_eq!(jsons[0], r#"{"key": "value1"}"#);
+        assert!(jsons[1].contains("nested"));
+        assert_eq!(jsons[2], r#"{"key": "value3"}"#);
+    }
+
+    #[test]
+    fn test_fallback_to_report() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        // Plain text without JSON
+        let response = "I need more information to proceed.";
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PlannerAction::Report { .. }));
+    }
+
+    #[test]
+    fn test_fallback_to_wait() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        let response = "好的，我等待执行器完成";
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PlannerAction::Wait));
+    }
+
+    #[test]
+    fn test_fallback_to_done() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        let response = "任务已完成！";
+        let actions = planner.parse_planner_actions(response);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PlannerAction::Done { .. }));
+    }
+
+    #[test]
+    fn test_should_continue_after_action() {
+        let planner_config = PlannerConfig::default();
+        let executor_model_config = ModelConfig::default();
+        let executor_agent_config = AgentConfig::default();
+        let planner =
+            PlannerAgent::new(planner_config, executor_model_config, executor_agent_config);
+
+        // AddTodo should continue
+        assert!(planner.should_continue_after_action(&PlannerAction::AddTodo {
+            description: "test".to_string(),
+            task_type: "general".to_string(),
+        }));
+
+        // StartExecutor should stop
+        assert!(!planner.should_continue_after_action(&PlannerAction::StartExecutor {
+            task_id: "task_1".to_string(),
+        }));
+
+        // Report should stop
+        assert!(!planner.should_continue_after_action(&PlannerAction::Report {
+            message: "test".to_string(),
+        }));
+
+        // Done should stop
+        assert!(!planner.should_continue_after_action(&PlannerAction::Done {
+            message: "test".to_string(),
+        }));
+
+        // Wait should stop
+        assert!(!planner.should_continue_after_action(&PlannerAction::Wait));
     }
 }

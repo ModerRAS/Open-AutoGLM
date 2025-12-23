@@ -335,7 +335,12 @@ src/
 ├── lib.rs              # Library entry point
 ├── main.rs             # CLI entry point
 ├── agent/              # Core agent logic
-│   └── phone_agent.rs  # PhoneAgent implementation
+│   ├── phone_agent.rs  # PhoneAgent implementation
+│   ├── executor.rs     # Executor wrapper for dual-loop mode
+│   ├── planner.rs      # Planner agent (outer loop)
+│   ├── dual_loop.rs    # Dual-loop orchestration
+│   ├── todo.rs         # Todo list management
+│   └── prompt_memory.rs # Prompt memory with auto-learning
 ├── actions/            # Action handling
 │   └── handler.rs      # Action parser and executor
 ├── adb/                # ADB utilities
@@ -351,6 +356,118 @@ src/
 │   └── prompts.rs      # System prompts
 └── model/              # Model client
     └── client.rs       # OpenAI-compatible API client
+```
+
+## Dual-Loop Architecture (Planner + Executor)
+
+The dual-loop architecture separates task planning from execution, enabling more robust and intelligent automation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Dual-Loop System                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────────┐         ┌──────────────────────┐     │
+│  │   Planner (Outer)    │◄───────►│  Executor (Inner)    │     │
+│  │   (DeepSeek/GPT)     │         │    (AutoGLM)         │     │
+│  │                      │         │                      │     │
+│  │  • Task decomposition│         │  • Screen analysis   │     │
+│  │  • Progress tracking │         │  • Action execution  │     │
+│  │  • Stuck detection   │         │  • UI interaction    │     │
+│  │  • User interaction  │         │                      │     │
+│  └──────────────────────┘         └──────────────────────┘     │
+│           │                                │                    │
+│           ▼                                ▼                    │
+│  ┌──────────────────────┐         ┌──────────────────────┐     │
+│  │     Todo List        │         │   Prompt Memory      │     │
+│  │  • Task management   │         │  • Optimized prompts │     │
+│  │  • Status tracking   │         │  • Auto-learning     │     │
+│  │  • Retry logic       │         │  • Task type mapping │     │
+│  └──────────────────────┘         └──────────────────────┘     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Task Decomposition** | Complex tasks are broken into subtasks with types |
+| **Stuck Detection** | Detects when executor is stuck and auto-corrects |
+| **Auto-Learning** | Learns from user corrections (3+ triggers consolidation) |
+| **Context Overflow Protection** | Auto-resets executor when context explodes |
+| **Dynamic Task Types** | Planner can create new task types, system learns |
+| **Multi-Action Support** | Parse and execute multiple actions per response |
+| **Prompt Memory** | Stores optimized prompts per task type |
+
+### Planner Actions
+
+| Action | Description |
+|--------|-------------|
+| `add_todo` | Add a new task to the list |
+| `start_executor` | Start executing a specific task |
+| `pause_executor` | Pause the current execution |
+| `resume_executor` | Resume paused execution |
+| `inject_prompt` | Inject guidance/correction to executor |
+| `reset_executor` | Reset executor context |
+| `complete_todo` | Mark a task as completed |
+| `fail_todo` | Mark a task as failed |
+| `report` | Report status/progress to user |
+| `wait` | Wait for executor feedback |
+| `done` | Planning complete |
+
+### Configuration
+
+**Environment Variables**:
+```bash
+# Enable dual-loop mode
+DUAL_LOOP_MODE=true
+
+# Planner model (separate from executor)
+PLANNER_MODEL_BASE_URL=https://api.deepseek.com/v1
+PLANNER_MODEL_API_KEY=your-deepseek-key
+PLANNER_MODEL_NAME=deepseek-chat
+
+# Dual-loop intervals (milliseconds)
+PLANNER_LOOP_INTERVAL=2000    # Planner thinks every 2s
+EXECUTOR_LOOP_INTERVAL=500    # Executor acts every 0.5s
+
+# History and thresholds
+MAX_EXECUTOR_FEEDBACK_HISTORY=2   # Keep last 2 feedbacks
+STUCK_THRESHOLD=3                  # 3 stuck counts = intervention
+
+# Prompt memory persistence
+PROMPT_MEMORY_PATH=./prompt_memory.json
+```
+
+### Usage Example
+
+```bash
+# Start with dual-loop mode
+DUAL_LOOP_MODE=true cargo run --release --bin phone-agent
+
+# Then input a complex task:
+> 帮我打开微信，给张三发消息说"明天见"，然后截图保存
+
+# The planner will:
+# 1. Decompose into subtasks (open WeChat, find contact, send message, screenshot)
+# 2. Create todo list with appropriate task types
+# 3. Start executor for each task
+# 4. Monitor progress and handle stuck situations
+# 5. Learn from any corrections you provide
+```
+
+### Auto-Learning from Corrections
+
+When you provide corrections via `inject_prompt`, the system:
+1. Records the correction with context
+2. After 3+ corrections for a task type, consolidates into optimized prompt
+3. Future tasks of the same type use the learned prompt
+
+```
+User: inject_prompt "点击时要等待页面加载完成"
+System: 📚 检测到 3 条纠偏记录，将自动整合到记忆中...
+System: ✅ 已整合用户纠偏到记忆: wechat_navigation
 ```
 
 ## Supported Actions

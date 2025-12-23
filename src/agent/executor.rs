@@ -190,6 +190,12 @@ impl ExecutorWrapper {
         &self.status
     }
 
+    /// Set status (mainly for testing purposes).
+    #[cfg(test)]
+    pub fn set_status(&mut self, status: ExecutorStatus) {
+        self.status = status;
+    }
+
     /// Get current task ID.
     pub fn task_id(&self) -> Option<&str> {
         self.current_task_id.as_deref()
@@ -620,5 +626,107 @@ mod tests {
         executor.enqueue(ExecutorCommand::Resume);
         executor.process_next_command();
         assert_eq!(*executor.status(), ExecutorStatus::Running);
+    }
+
+    #[test]
+    fn test_executor_inject_prompt_wakes_completed() {
+        let model_config = ModelConfig::default();
+        let agent_config = AgentConfig::default();
+        let mut executor = ExecutorWrapper::new(model_config, agent_config);
+
+        // Start and complete a task
+        executor.enqueue(ExecutorCommand::StartTask {
+            task_id: "test".to_string(),
+            description: "Test task".to_string(),
+            system_prompt: None,
+        });
+        executor.process_next_command();
+
+        // Simulate completion
+        executor.set_status(ExecutorStatus::Completed);
+        assert_eq!(*executor.status(), ExecutorStatus::Completed);
+
+        // Inject prompt should wake it up
+        executor.enqueue(ExecutorCommand::InjectPrompt {
+            content: "Continue please".to_string(),
+        });
+        executor.process_next_command();
+        assert_eq!(*executor.status(), ExecutorStatus::Running);
+    }
+
+    #[test]
+    fn test_executor_inject_prompt_wakes_idle() {
+        let model_config = ModelConfig::default();
+        let agent_config = AgentConfig::default();
+        let mut executor = ExecutorWrapper::new(model_config, agent_config);
+
+        // Start with a task (creates context)
+        executor.enqueue(ExecutorCommand::StartTask {
+            task_id: "test".to_string(),
+            description: "Test task".to_string(),
+            system_prompt: None,
+        });
+        executor.process_next_command();
+
+        // Go to Idle
+        executor.set_status(ExecutorStatus::Idle);
+        assert_eq!(*executor.status(), ExecutorStatus::Idle);
+
+        // Inject prompt should wake it up
+        executor.enqueue(ExecutorCommand::InjectPrompt {
+            content: "Do something".to_string(),
+        });
+        executor.process_next_command();
+        assert_eq!(*executor.status(), ExecutorStatus::Running);
+    }
+
+    #[test]
+    fn test_executor_reset_context() {
+        let model_config = ModelConfig::default();
+        let agent_config = AgentConfig::default();
+        let mut executor = ExecutorWrapper::new(model_config, agent_config);
+
+        executor.enqueue(ExecutorCommand::StartTask {
+            task_id: "test".to_string(),
+            description: "Test task".to_string(),
+            system_prompt: None,
+        });
+        executor.process_next_command();
+
+        // Reset - should clear context but keep running
+        executor.enqueue(ExecutorCommand::ResetContext);
+        executor.process_next_command();
+
+        // Status stays Running (reset_context only clears context, doesn't change status)
+        assert_eq!(*executor.status(), ExecutorStatus::Running);
+    }
+
+    #[test]
+    fn test_executor_feedback_creation() {
+        let model_config = ModelConfig::default();
+        let agent_config = AgentConfig::default();
+        let executor = ExecutorWrapper::new(model_config, agent_config);
+
+        let feedback = executor.create_feedback(None, false, false);
+        assert!(feedback.task_id.is_none());
+        assert_eq!(feedback.step_count, 0);
+        assert!(!feedback.screen_changed);
+        assert!(!feedback.context_overflow_detected);
+    }
+
+    #[test]
+    fn test_step_result_summary() {
+        let result = StepResult {
+            thinking: "I need to click".to_string(),
+            action: Some(serde_json::json!({"type": "Tap", "x": 100, "y": 200})),
+            message: Some("Tapping button".to_string()),
+            success: true,
+            finished: false,
+        };
+
+        let summary = StepResultSummary::from(&result);
+        assert_eq!(summary.thinking, "I need to click");
+        assert!(summary.success);
+        assert!(!summary.finished);
     }
 }

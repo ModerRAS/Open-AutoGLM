@@ -500,4 +500,79 @@ mod tests {
         assert!(memory.contains("微信操作"));
         assert!(memory.contains("通用任务"));
     }
+
+    #[test]
+    fn test_corrections_recording() {
+        let mut memory = PromptMemory::new();
+        memory.update("test_type", "Initial prompt");
+
+        // Add corrections
+        memory.add_correction("test_type", "Correction 1", None);
+        memory.add_correction("test_type", "Correction 2", Some("Context".to_string()));
+
+        assert_eq!(memory.pending_corrections("test_type"), 2);
+
+        // Get corrections summary
+        let summary = memory.get_corrections_summary("test_type").unwrap();
+        assert!(summary.contains("Correction 1"));
+        assert!(summary.contains("Correction 2"));
+    }
+
+    #[test]
+    fn test_corrections_clear() {
+        let mut memory = PromptMemory::new();
+        memory.update("test_type", "Initial prompt");
+
+        memory.add_correction("test_type", "Correction 1", None);
+        memory.add_correction("test_type", "Correction 2", None);
+        assert_eq!(memory.pending_corrections("test_type"), 2);
+
+        // Clear corrections
+        if let Some(entry) = memory.get_mut("test_type") {
+            entry.clear_corrections();
+        }
+        assert_eq!(memory.pending_corrections("test_type"), 0);
+    }
+
+    #[test]
+    fn test_task_types_summary() {
+        let mut memory = PromptMemory::new();
+        memory.update("微信操作", "WeChat prompt");
+        memory.update("设置调整", "Settings prompt");
+
+        let summary = memory.get_task_types_summary();
+        assert!(summary.contains("微信操作"));
+        assert!(summary.contains("设置调整"));
+    }
+
+    #[test]
+    fn test_find_matching_task_type() {
+        let mut memory = PromptMemory::new();
+        memory.update("微信操作", "WeChat prompt");
+        memory.update("微信消息", "WeChat message prompt");
+        memory.update("设置调整", "Settings prompt");
+
+        // Exact match
+        assert_eq!(memory.find_matching_task_type("微信操作"), Some("微信操作".to_string()));
+
+        // Partial match
+        let result = memory.find_matching_task_type("微信");
+        assert!(result.is_some());
+        let matched = result.unwrap();
+        assert!(matched.contains("微信"));
+    }
+
+    #[test]
+    fn test_ensure_task_type() {
+        let mut memory = PromptMemory::new();
+
+        // Non-existent type should be created
+        memory.ensure_task_type("new_type");
+        assert!(memory.contains("new_type"));
+
+        // Existing type should not be modified
+        memory.update("existing", "Custom prompt");
+        memory.ensure_task_type("existing");
+        assert_eq!(memory.get_prompt("existing"), Some("Custom prompt"));
+    }
 }
