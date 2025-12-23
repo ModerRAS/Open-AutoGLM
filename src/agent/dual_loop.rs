@@ -259,6 +259,9 @@ impl DualLoopRunner {
                                 callback(&feedback);
                             }
 
+                            // React to new executor feedback immediately to reduce planner latency
+                            let _ = self.planner.tick_planner().await;
+
                             // Log significant events
                             match &feedback.status {
                                 ExecutorStatus::Completed => {
@@ -326,6 +329,9 @@ impl DualLoopRunner {
                         if let Some(ref callback) = self.feedback_callback {
                             callback(&feedback);
                         }
+
+                        // React immediately to new executor feedback in blocking mode
+                        let _ = self.planner.tick_planner().await;
                     }
                 }
 

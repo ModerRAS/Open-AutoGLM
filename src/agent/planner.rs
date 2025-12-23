@@ -313,6 +313,8 @@ pub struct PlannerAgent {
     is_running: bool,
     /// Task types pending consolidation (accumulated corrections).
     pending_consolidation_task_types: Vec<String>,
+    /// Whether there is new executor feedback that hasn't been handled yet.
+    pending_executor_feedback: bool,
 }
 
 impl PlannerAgent {
@@ -350,6 +352,7 @@ impl PlannerAgent {
             execution_log: Vec::new(),
             is_running: false,
             pending_consolidation_task_types: Vec::new(),
+            pending_executor_feedback: false,
         }
     }
 
@@ -446,17 +449,29 @@ impl PlannerAgent {
             return false;
         }
 
+        let has_input = self.has_pending_input();
+        let has_feedback = self.pending_executor_feedback;
+        let has_consolidation = !self.pending_consolidation_task_types.is_empty();
+
+        // If nothing new to process, skip heavy work
+        if !has_input && !has_feedback && !has_consolidation {
+            return !self.todo_list.is_all_done();
+        }
+
         // 1. Process any pending consolidations (corrections -> optimized prompts)
         self.process_pending_consolidations().await;
 
         // 2. Process any pending user input
         self.process_user_input().await;
 
-        // 3. Supervise executor and decide actions
-        self.supervise_executor().await;
+        // 3. Supervise executor and decide actions only when new feedback arrives
+        if self.pending_executor_feedback {
+            self.supervise_executor().await;
+            self.pending_executor_feedback = false;
+        }
 
         // 4. Check if we should continue
-        !self.todo_list.is_all_done() || self.has_pending_input()
+        !self.todo_list.is_all_done() || self.has_pending_input() || self.pending_executor_feedback
     }
 
     /// Process pending user input.
@@ -539,8 +554,8 @@ impl PlannerAgent {
             PlannerAction::AddTodo { .. } => true,
             // After starting executor, stop the conversation loop
             PlannerAction::StartExecutor { .. } => false,
-            // Report and wait can continue
-            PlannerAction::Report { .. } => true,
+            // Report should stop to avoid repeated summaries
+            PlannerAction::Report { .. } => false,
             PlannerAction::Wait => false,
             // Done means planning is complete
             PlannerAction::Done { .. } => false,
@@ -1334,6 +1349,7 @@ impl PlannerAgent {
     /// Collect executor feedback with history limit.
     fn collect_executor_feedback(&mut self, feedback: ExecutorFeedback) {
         self.executor_feedback_history.push_back(feedback);
+        self.pending_executor_feedback = true;
 
         // Enforce history limit
         while self.executor_feedback_history.len() > self.config.max_executor_feedback_history {
