@@ -335,10 +335,15 @@ async fn calibrate(model_client: &ModelClient) -> (f64, f64) {
 src/
 ├── lib.rs              # 库入口
 ├── bin/
-│   ├── cli.rs           # CLI入口（phone-agent）
-│   └── gui.rs           # GUI入口（phone-agent-gui）
+│   ├── cli.rs          # CLI入口（phone-agent）
+│   └── gui.rs          # GUI入口（phone-agent-gui）
 ├── agent/              # 核心代理逻辑
-│   └── phone_agent.rs  # PhoneAgent实现
+│   ├── phone_agent.rs  # 单层代理实现
+│   ├── executor.rs     # 内层执行器（AutoGLM）
+│   ├── planner.rs      # 外层规划器（DeepSeek/GPT）
+│   ├── dual_loop.rs    # 双层编排（Planner + Executor）
+│   ├── todo.rs         # 任务列表管理
+│   └── prompt_memory.rs # 提示词记忆与自动学习
 ├── actions/            # 动作处理
 │   └── handler.rs      # 动作解析和执行器
 ├── adb/                # ADB工具
@@ -353,11 +358,121 @@ src/
 │   ├── i18n.rs         # 国际化
 │   └── prompts.rs      # 系统提示词
 ├── gui/                # GUI 模块（Iced）
-│   ├── app.rs           # GUI 主界面
-│   ├── logger.rs        # GUI 日志存储与展示
-│   └── settings.rs      # GUI 配置保存/加载
+│   ├── app.rs          # GUI 主界面
+│   ├── logger.rs       # GUI 日志存储与展示
+│   └── settings.rs     # GUI 配置保存/加载
 └── model/              # 模型客户端
     └── client.rs       # OpenAI兼容API客户端
+```
+
+## 双层架构（Planner + Executor）
+
+双层架构将“规划”与“执行”解耦：外层规划器负责拆解任务、监控进度、处理卡住；内层执行器专注屏幕理解与动作执行。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Dual-Loop System                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────────┐         ┌──────────────────────┐     │
+│  │   Planner (外层)     │◄───────►│  Executor (内层)     │     │
+│  │   (DeepSeek/GPT)     │         │    (AutoGLM)          │     │
+│  │  • 任务拆解          │         │  • 屏幕理解           │     │
+│  │  • 进度追踪          │         │  • 动作执行           │     │
+│  │  • 卡住检测          │         │  • UI 交互            │     │
+│  │  • 用户交互          │         │                      │     │
+│  └──────────────────────┘         └──────────────────────┘     │
+│           │                                │                    │
+│           ▼                                ▼                    │
+│  ┌──────────────────────┐         ┌──────────────────────┐     │
+│  │     Todo List        │         │   Prompt Memory      │     │
+│  │  • 任务管理          │         │  • 优化提示词         │     │
+│  │  • 状态跟踪          │         │  • 自动学习           │     │
+│  │  • 重试逻辑          │         │  • 任务类型映射       │     │
+│  └──────────────────────┘         └──────────────────────┘     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 特性
+
+| 特性 | 描述 |
+|------|------|
+| **任务拆解** | 复杂任务拆分为带类型的子任务 |
+| **卡住检测** | 检测执行器卡住并自动纠偏 |
+| **自动学习** | 用户纠偏累计（3 次及以上）自动整合为新提示词 |
+| **上下文溢出保护** | 检测执行器上下文爆炸并自动重置 |
+| **动态任务类型** | Planner 可创建新任务类型，系统会学习与提示 |
+| **多动作解析** | 单次回复可解析并依次执行多个动作 |
+| **提示词记忆** | 按任务类型保存优化后的提示词 |
+
+### Planner 动作列表
+
+| 动作 | 说明 |
+|------|------|
+| `add_todo` | 添加任务到列表 |
+| `start_executor` | 启动执行指定任务 |
+| `pause_executor` | 暂停执行器 |
+| `resume_executor` | 恢复执行器 |
+| `inject_prompt` | 注入纠偏/指导，支持唤醒完成或空闲状态 |
+| `reset_executor` | 重置执行器上下文 |
+| `complete_todo` | 标记任务完成 |
+| `fail_todo` | 标记任务失败 |
+| `report` | 汇报状态/进度 |
+| `wait` | 等待执行器反馈 |
+| `done` | 规划结束 |
+
+### 关键环境变量
+
+```bash
+# 启用双层模式
+DUAL_LOOP_MODE=true
+
+# 独立的 Planner 模型配置（与执行器模型分离）
+PLANNER_MODEL_BASE_URL=https://api.deepseek.com/v1
+PLANNER_MODEL_API_KEY=your-deepseek-key
+PLANNER_MODEL_NAME=deepseek-chat
+
+# 双循环节奏（毫秒）
+PLANNER_LOOP_INTERVAL=2000    # Planner 每 2s 思考一次
+EXECUTOR_LOOP_INTERVAL=500    # Executor 每 0.5s 执行一次
+
+# 历史与阈值
+MAX_EXECUTOR_FEEDBACK_HISTORY=2   # 仅保留最近 2 条反馈
+STUCK_THRESHOLD=3                  # 连续 3 次卡住触发干预
+
+# 提示词记忆持久化
+PROMPT_MEMORY_PATH=./prompt_memory.json
+```
+
+### 典型流程示例
+
+```bash
+# 启用双层模式启动
+DUAL_LOOP_MODE=true cargo run --release --bin phone-agent
+
+# 输入复杂任务
+> 帮我打开微信，给张三发消息说"明天见"，然后截图保存
+
+# Planner 将：
+# 1. 拆分子任务（打开微信、找到联系人、发送消息、截图）
+# 2. 创建带类型的 todo 列表
+# 3. 为每个子任务启动 executor
+# 4. 监控进度，检测卡住并自动纠偏
+# 5. 记录你的纠偏，3+ 次后自动学习提示词
+```
+
+### 纠偏自动学习
+
+当你用 `inject_prompt` 提供纠偏时：
+1. 记录纠偏内容与上下文
+2. 某个任务类型累计 >=3 条纠偏后，自动整合为新的系统提示词
+3. 后续同类型任务优先使用学习后的提示词
+
+```
+用户: inject_prompt "点击时要等待页面加载完成"
+系统: 📚 检测到 3 条纠偏记录，将自动整合到记忆中...
+系统: ✅ 已整合用户纠偏到记忆: wechat_navigation
 ```
 
 ## 支持的操作
